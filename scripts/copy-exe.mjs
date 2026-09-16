@@ -39,8 +39,6 @@ function collectExes(dir, into) {
 const found = [];
 for (const dir of [...new Set(searchRoots)]) {
   collectExes(dir, found);
-  collectExes(path.join(dir, "bundle", "nsis"), found);
-  collectExes(path.join(dir, "bundle", "msi"), found);
 }
 
 if (found.length === 0) {
@@ -50,6 +48,7 @@ if (found.length === 0) {
 }
 
 const appExe =
+  found.find((file) => /kitap_studiosu\.exe$/i.test(file) && !/bundle/i.test(file)) ??
   found.find((file) => /kitap_studiosu\.exe$/i.test(file)) ??
   found.find((file) => file.toLowerCase().endsWith(".exe") && !/setup/i.test(file)) ??
   found[0];
@@ -61,20 +60,22 @@ const installer = found.find((file) => /setup\.exe$/i.test(file));
 if (installer) {
   copyFileSync(installer, path.join(outDir, "Kurulum.exe"));
 }
-const msi = found.find((file) => file.toLowerCase().endsWith(".msi"));
-if (msi) {
-  copyFileSync(msi, path.join(outDir, "Kitap Stüdyosu.msi"));
-}
 
 writeFileSync(
   path.join(outDir, "OKU.txt"),
-  `Kitap Stüdyosu
-================
-Çift tıkla: Kitap Stüdyosu.exe
+  `Kitap Stüdyosu — başka bilgisayarda kurulum
+============================================
+1) Bu klasörü USB veya indirme ile hedef Windows 10/11 PC'ye kopyala.
+2) Kurulum.exe dosyasını çift tıkla (yönetici gerekmez).
+3) Başlat menüsünden "Kitap Stüdyosu"nu aç.
 
-Kurulum istersen: Kurulum.exe veya Kitap Stüdyosu.msi
+Kurulum istemezsen: "Kitap Stüdyosu.exe" yeterli olabilir.
+WebView2 yoksa Kurulum.exe onu da yükler.
 
-Masaüstündeki proje klasöründen "Kitap Stüdyosu.bat" ile de açabilirsin.
+Kitapların kaydı bu makinede:
+  Belgeler\\KitapStudioProjects
+
+Ayrıntı: proje kökündeki KURULUM.md
 `,
   "utf8",
 );
@@ -96,4 +97,4 @@ if exist "%EXE%" (
 console.log(`Kopyalandı: ${destExe}`);
 console.log(`Kaynak: ${appExe}`);
 if (installer) console.log(`Kurulum: ${installer}`);
-if (msi) console.log(`MSI: ${msi}`);
+else console.warn("NSIS Kurulum.exe bulunamadı; yalnız uygulama exe kopyalandı.");

@@ -1,7 +1,13 @@
-Kitap Stüdyosu
-================
-Çift tıkla: Kitap Stüdyosu.exe
+Kitap Stüdyosu — başka bilgisayarda kurulum
+============================================
+1) Bu klasörü USB veya indirme ile hedef Windows 10/11 PC'ye kopyala.
+2) Kurulum.exe dosyasını çift tıkla (yönetici gerekmez).
+3) Başlat menüsünden "Kitap Stüdyosu"nu aç.
 
-Kurulum istersen: Kurulum.exe veya Kitap Stüdyosu.msi
+Kurulum istemezsen: "Kitap Stüdyosu.exe" yeterli olabilir.
+WebView2 yoksa Kurulum.exe onu da yükler.
 
-Masaüstündeki proje klasöründen "Kitap Stüdyosu.bat" ile de açabilirsin.
+Kitapların kaydı bu makinede:
+  Belgeler\KitapStudioProjects
+
+Ayrıntı: proje kökündeki KURULUM.md

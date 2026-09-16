@@ -31,13 +31,31 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "Kitap Stüdyosu",
+    "category": "Productivity",
+    "shortDescription": "Yerel kitap yazma ve yayınlama uygulaması",
+    "longDescription": "Kitap Stüdyosu, internet veya hesap gerektirmeden Windows bilgisayarda kitap yazmak, tasarlamak ve HTML/EPUB/PDF dışa aktarmak için kullanılır. Kitap dosyaları bu makinenin Belgeler klasöründe saklanır.",
+    "copyright": "Kitap Stüdyosu",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Turkish", "English"],
+        "displayLanguageSelector": false,
+        "startMenuFolder": "Kitap Stüdyosu",
+        "installerIcon": "icons/icon.ico"
+      }
+    }
   }
 }

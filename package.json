@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "package:win": "tauri build && node scripts/copy-exe.mjs"
+    "package:win": "tauri build --bundles nsis && node scripts/copy-exe.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

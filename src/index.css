@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+:root {
+  --shell: #07111f;
+  --shell-raised: #0c1829;
+  --shell-border: #1c314c;
+  --shell-hover: #13233a;
+  --shell-text: #e6eef8;
+  --shell-muted: #8aa0b8;
+  --accent: #3b82f6;
+  --accent-strong: #2563eb;
+  --brand: #ec4899;
+  --paper: #ffffff;
+  --ink: #152033;
+  --ink-muted: #5b6578;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+  background: var(--shell);
+  color: var(--shell-text);
+  font-size: 13px;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+.book-page {
+  font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+  color: var(--ink);
+}
+
+.book-page .tiptap {
+  outline: none;
+  min-height: 1.4em;
+  overflow: visible;
+  word-break: break-word;
+}
+
+.book-page .tiptap p {
+  margin: 0 0 0.7em;
+  line-height: 1.65;
+  font-size: 15px;
+}
+
+.book-page .tiptap h1,
+.book-page .tiptap h2,
+.book-page .tiptap h3 {
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0 0 0.45em;
+}
+
+.book-page .tiptap h1 { font-size: 28px; }
+.book-page .tiptap h2 { font-size: 22px; color: #1d4ed8; }
+.book-page .tiptap h3 { font-size: 18px; }
+
+.book-page .tiptap ul,
+.book-page .tiptap ol {
+  margin: 0 0 0.7em;
+  padding-left: 1.5em;
+}
+.book-page .tiptap ul {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+.book-page .tiptap ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+.book-page .tiptap li {
+  display: list-item;
+}
+.book-page .tiptap li p {
+  margin: 0 0 0.2em;
+}
+
+.book-page .tiptap blockquote {
+  margin: 0;
+  padding-left: 1rem;
+  border-left: 3px solid #3b82f6;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.book-page .tiptap a { color: #2563eb; }
+
+.app-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.app-scroll::-webkit-scrollbar-thumb { background: #243b57; border-radius: 8px; }
+.paper-scroll::-webkit-scrollbar-thumb { background: #2a4060; }
+
+.book-page-dark,
+.book-page-dark .tiptap,
+.book-page-dark .tiptap p {
+  color: #e5e7eb;
+}
+.book-page-dark .tiptap h2 { color: #93c5fd; }

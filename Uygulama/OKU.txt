@@ -1,0 +1,7 @@
+Kitap Stüdyosu
+================
+Çift tıkla: Kitap Stüdyosu.exe
+
+Kurulum istersen: Kurulum.exe veya Kitap Stüdyosu.msi
+
+Masaüstündeki proje klasöründen "Kitap Stüdyosu.bat" ile de açabilirsin.

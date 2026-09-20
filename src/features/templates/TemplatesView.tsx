@@ -7,6 +7,8 @@ import { templateService } from "@/services";
 import { useEditorStore } from "@/stores/editorStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { BOOK_PAGE_STRUCTURES, type BookPageStructureId } from "@/features/templates/bookPages";
+import { addBookPage, applyBookPageToCurrent } from "@/features/templates/addBookPage";
 import type { ChapterTemplate } from "@/types/domain";
 
 export function TemplatesView() {
@@ -54,7 +56,9 @@ export function TemplatesView() {
     }
   }
 
-  const builtins = templates.filter((item) => item.builtin);
+  const bookIds = new Set(BOOK_PAGE_STRUCTURES.map((item) => item.id));
+  const bookPages = templates.filter((item) => bookIds.has(item.id as BookPageStructureId));
+  const builtins = templates.filter((item) => item.builtin && !bookIds.has(item.id as BookPageStructureId));
   const saved = templates.filter((item) => !item.builtin);
 
   return (
@@ -63,13 +67,41 @@ export function TemplatesView() {
         <div>
           <h1 className="text-xl font-semibold">Sayfa yapıları</h1>
           <p className="mt-1 text-sm text-[#8aa0bd]">
-            Görsel alternatiflerden birini seçin. Yer tutucu karelerin yerine kendi fotoğrafınızı koyarsınız.
+            Kapak, önsöz, içindekiler ve girişi yeni sayfa olarak ekleyin. Diğer düzenleri açık bölüme uygulayabilirsiniz.
           </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-[#8aa0bd]">Kitap sayfaları</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {BOOK_PAGE_STRUCTURES.map((page) => {
+              const item = bookPages.find((template) => template.id === page.id);
+              return (
+                <div key={page.id} className="overflow-hidden rounded-lg border border-[#1c314c] bg-[#07111f]">
+                  <PageLayoutPreview templateId={page.id} payload={item?.payload} />
+                  <div className="p-3">
+                    <div className="font-medium">{page.title}</div>
+                    <p className="mt-1 min-h-10 text-xs text-[#8aa0b8]">{page.hint}</p>
+                    <div className="mt-3 flex flex-col gap-2">
+                      <Button size="sm" onClick={() => void addBookPage(page.id)}>
+                        Sayfa olarak ekle
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => void applyBookPageToCurrent(page.id)}>
+                        Bu bölüme uygula
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-[#8aa0bd]">Diğer düzenler</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {builtins.map((item) => (
             <LayoutCard key={item.id} item={item} onApply={() => void apply(item.id)} />
           ))}
+          </div>
         </div>
         <div className="rounded-lg border border-[#1c314c] bg-[#102038] p-4">
           <p className="mb-3 text-sm text-[#8aa0b8]">Açık bölümdeki blokları kendi şablonunuz olarak kaydedin.</p>
@@ -80,7 +112,7 @@ export function TemplatesView() {
                 void templateService
                   .save({
                     name,
-                    payload: blocks.map((block) => ({ type: block.type, data: block.data })),
+                    payload: blocks.map((block) => ({ type: block.type, data: block.data, style: block.style })),
                   })
                   .then(() => {
                     setName("");

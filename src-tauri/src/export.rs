@@ -8,6 +8,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
 use zip::ZipWriter;
@@ -108,7 +109,7 @@ fn export_html(
 ) -> Result<PathBuf, AppError> {
     let dir = root.join("exports").join("html").join(format!("{slug}-{stamp}"));
     fs::create_dir_all(dir.join("images"))?;
-    let html = build_html(root, book, chapters, include_toc, &dir, "")?;
+    let html = build_html(root, book, chapters, include_toc, &dir, "", false)?;
     let path = dir.join("index.html");
     fs::write(&path, html)?;
     Ok(path)
@@ -183,7 +184,7 @@ fn export_epub(
             }
             xhtml.push_str(&html);
         }
-        xhtml.push_str(&page_number_html(book, index));
+        xhtml.push_str(&page_number_html(book, book.page_number_start + index as i64));
         xhtml.push_str("</body></html>");
         let href = format!("chapter-{index}.xhtml");
         zip.start_file(format!("EPUB/{href}"), deflated)?;
@@ -245,17 +246,49 @@ fn export_pdf(
     slug: &str,
     stamp: &impl std::fmt::Display,
 ) -> Result<PathBuf, AppError> {
-    let html_path = export_html(root, book, chapters, include_toc, slug, stamp)?;
+    let work = root
+        .join("exports")
+        .join("pdf")
+        .join(format!("{slug}-{stamp}-src"));
+    fs::create_dir_all(work.join("images"))?;
+    let html = build_html(root, book, chapters, include_toc, &work, "", true)?;
+    let html_path = work.join("index.html");
+    fs::write(&html_path, html)?;
     let pdf_path = root
         .join("exports")
         .join("pdf")
         .join(format!("{slug}-{stamp}.pdf"));
     fs::create_dir_all(pdf_path.parent().unwrap_or(root))?;
-    if print_html_to_pdf(&html_path, &pdf_path) {
-        return Ok(pdf_path);
+    let temp_dir = std::env::temp_dir().join("kitap-studiosu-pdf");
+    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = copy_dir_all(&work, &temp_dir);
+    let temp_html = temp_dir.join("index.html");
+    let temp_pdf = std::env::temp_dir().join("kitap-studiosu-export.pdf");
+    let _ = fs::remove_file(&temp_pdf);
+    if print_html_to_pdf(&temp_html, &temp_pdf) || print_html_to_pdf(&html_path, &pdf_path) {
+        if temp_pdf.is_file() {
+            let _ = fs::copy(&temp_pdf, &pdf_path);
+        }
+        if pdf_path.is_file() && fs::metadata(&pdf_path).map(|m| m.len() > 500).unwrap_or(false) {
+            return Ok(pdf_path);
+        }
     }
     write_plain_pdf(&pdf_path, book, chapters)?;
     Ok(pdf_path)
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &to)?;
+        } else {
+            fs::copy(entry.path(), to)?;
+        }
+    }
+    Ok(())
 }
 
 fn print_html_to_pdf(html_path: &Path, pdf_path: &Path) -> bool {
@@ -265,34 +298,91 @@ fn print_html_to_pdf(html_path: &Path, pdf_path: &Path) -> bool {
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     ];
-    let Ok(html_url) = html_path.canonicalize() else {
-        return false;
-    };
-    let html_url = format!("file:///{}", html_url.to_string_lossy().replace('\\', "/"));
+    let html_url = file_url(html_path);
     let pdf_arg = format!("--print-to-pdf={}", pdf_path.display());
+    let profile = std::env::temp_dir().join("kitap-studiosu-pdf-profile");
+    let _ = fs::create_dir_all(&profile);
+    let profile_arg = format!("--user-data-dir={}", profile.display());
+    let headless_modes = ["--headless", "--headless=old", "--headless=new"];
     for browser in browsers {
         if !Path::new(browser).is_file() {
             continue;
         }
-        let mut cmd = Command::new(browser);
-        cmd.args([
-            "--headless=new",
-            "--disable-gpu",
-            "--no-pdf-header-footer",
-            "--virtual-time-budget=15000",
-            &pdf_arg,
-            &html_url,
-        ]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-        if cmd.status().map(|status| status.success()).unwrap_or(false) && pdf_path.is_file() {
-            return true;
+        for headless in headless_modes {
+            let _ = fs::remove_file(pdf_path);
+            let mut cmd = Command::new(browser);
+            cmd.args([
+                headless,
+                "--disable-gpu",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-extensions",
+                "--allow-file-access-from-files",
+                "--hide-scrollbars",
+                "--no-pdf-header-footer",
+                "--print-to-pdf-no-header",
+                "--run-all-compositor-stages-before-draw",
+                "--virtual-time-budget=20000",
+                &profile_arg,
+                &pdf_arg,
+                &html_url,
+            ]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000);
+            }
+            let _ = cmd.status();
+            if wait_for_pdf(pdf_path) {
+                return true;
+            }
         }
     }
     false
+}
+
+fn wait_for_pdf(path: &Path) -> bool {
+    for _ in 0..80 {
+        if path.is_file() && fs::metadata(path).map(|m| m.len() > 500).unwrap_or(false) {
+            std::thread::sleep(Duration::from_millis(120));
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(80));
+    }
+    false
+}
+
+fn file_url(path: &Path) -> String {
+    let mut raw = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
+    if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+        raw = stripped.to_string();
+    }
+    raw = raw.replace('\\', "/");
+    let encoded = raw
+        .split('/')
+        .map(|part| {
+            if part.is_empty() || part.ends_with(':') {
+                part.to_string()
+            } else {
+                let mut out = String::new();
+                for byte in part.bytes() {
+                    match byte {
+                        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                            out.push(byte as char);
+                        }
+                        _ => out.push_str(&format!("%{byte:02X}")),
+                    }
+                }
+                out
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    format!("file:///{encoded}")
 }
 
 fn export_mobile(
@@ -308,7 +398,7 @@ fn export_mobile(
         .join("mobile")
         .join(format!("{slug}-{stamp}"));
     fs::create_dir_all(dir.join("images"))?;
-    let html = build_html(root, book, chapters, include_toc, &dir, MOBILE_CSS)?;
+    let html = build_html(root, book, chapters, include_toc, &dir, MOBILE_CSS, false)?;
     fs::write(dir.join("index.html"), html)?;
     let zip_path = root
         .join("exports")
@@ -359,37 +449,29 @@ fn write_plain_pdf(
     book: &Book,
     chapters: &[RenderedChapter],
 ) -> Result<(), AppError> {
-    let mut body = String::new();
-    body.push_str(&book.title);
-    body.push('\n');
-    if let Some(subtitle) = &book.subtitle {
-        body.push_str(subtitle);
-        body.push('\n');
-    }
-    if let Some(author) = &book.author {
-        body.push_str(author);
-        body.push('\n');
-    }
-    body.push('\n');
+    let mut pages: Vec<Vec<String>> = Vec::new();
     for chapter in chapters {
-        body.push_str(&chapter_heading(&chapter.chapter));
-        body.push('\n');
-        for block in &chapter.blocks {
-            let text = extract_plain(&block.data);
-            if !text.trim().is_empty() {
-                body.push_str(&text);
-                body.push('\n');
+        for slice in split_export_pages(&chapter.blocks, true) {
+            let mut text = String::new();
+            for block in slice {
+                let extracted = extract_plain(&block.data);
+                if !extracted.trim().is_empty() {
+                    text.push_str(&extracted);
+                    text.push('\n');
+                }
             }
+            let latin = latinize(&text);
+            let mut lines = wrap_pdf_lines(&latin, 72);
+            if lines.is_empty() {
+                lines.push(" ".to_string());
+            }
+            lines.truncate(38);
+            pages.push(lines);
         }
-        body.push('\n');
     }
-    let latin = latinize(&body);
-    let wrapped = wrap_pdf_lines(&latin, 88);
-    let pages: Vec<Vec<String>> = if wrapped.is_empty() {
-        vec![vec![" ".to_string()]]
-    } else {
-        wrapped.chunks(48).map(|chunk| chunk.to_vec()).collect()
-    };
+    if pages.is_empty() {
+        pages.push(vec![latinize(&book.title)]);
+    }
 
     let page_count = pages.len();
     let font_id = 3;
@@ -408,7 +490,7 @@ fn write_plain_pdf(
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
     ];
     for page in &pages {
-        let mut stream = String::from("BT\n/F1 11 Tf\n72 720 Td\n");
+        let mut stream = String::from("BT\n/F1 11 Tf\n48 640 Td\n");
         for (line_index, line) in page.iter().enumerate() {
             if line_index > 0 {
                 stream.push_str("0 -15 Td\n");
@@ -423,7 +505,7 @@ fn write_plain_pdf(
         );
         let content_id = body_objects.len() + 2;
         let page_obj = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>"
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 570 690] /Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>"
         );
         body_objects.push(page_obj.into_bytes());
         body_objects.push(content.into_bytes());
@@ -537,10 +619,35 @@ fn build_html(
     include_toc: bool,
     out_dir: &Path,
     extra_css: &str,
+    paged: bool,
 ) -> Result<String, AppError> {
     let mut body = String::new();
-    if include_toc {
-        body.push_str("<nav class=\"toc\"><h2>İçindekiler</h2><ol>");
+    let mut page = book.page_number_start;
+    let mut image_counter = 0usize;
+    let add_cover = !paged && !chapters.iter().any(|item| is_front_page(&item.chapter.title, &["kapak", "cover"]));
+    let add_toc = include_toc
+        && !paged
+        && !chapters
+            .iter()
+            .any(|item| is_front_page(&item.chapter.title, &["içindekiler", "icindekiler", "contents"]));
+    if add_cover {
+        body.push_str("<section class=\"cover sheet\">");
+        body.push_str(&format!(
+            "<p class=\"kicker\">Kitap Stüdyosu</p><h1 class=\"title\">{}</h1>",
+            escape_html(&book.title)
+        ));
+        if let Some(subtitle) = book.subtitle.as_deref() {
+            body.push_str(&format!("<p class=\"subtitle\">{}</p>", escape_html(subtitle)));
+        }
+        if let Some(author) = book.author.as_deref() {
+            body.push_str(&format!("<p class=\"author\">{}</p>", escape_html(author)));
+        }
+        body.push_str(&page_number_html(book, page));
+        page += 1;
+        body.push_str("</section>");
+    }
+    if add_toc {
+        body.push_str("<nav class=\"toc sheet\"><h2>İçindekiler</h2><ol>");
         for chapter in chapters {
             body.push_str(&format!(
                 "<li><a href=\"#chapter-{}\">{}</a></li>",
@@ -548,32 +655,50 @@ fn build_html(
                 escape_html(&chapter_heading(&chapter.chapter))
             ));
         }
-        body.push_str("</ol></nav>");
+        body.push_str("</ol>");
+        body.push_str(&page_number_html(book, page));
+        page += 1;
+        body.push_str("</nav>");
     }
-    for (index, chapter) in chapters.iter().enumerate() {
-        body.push_str(&format!(
-            "<section id=\"chapter-{}\" style=\"position:relative;min-height:720px\">",
-            chapter.chapter.id
-        ));
-        body.push_str(&format!(
-            "<h1>{}</h1>",
-            escape_html(&chapter_heading(&chapter.chapter))
-        ));
-        let mut caption_counts = CaptionCounts::default();
-        for block in &chapter.blocks {
-            let mut unused = 0usize;
-            let (html, _) = render_block_html(root, block, Some(out_dir), &mut unused, &mut caption_counts)?;
-            body.push_str(&html);
+    for chapter in chapters.iter() {
+        let slices = split_export_pages(&chapter.blocks, paged);
+        for slice in slices.iter() {
+            body.push_str(&format!(
+                "<section class=\"sheet\" id=\"chapter-{}\">",
+                chapter.chapter.id
+            ));
+            let mut caption_counts = CaptionCounts::default();
+            for block in slice {
+                if paged && hidden_in_pdf(block) {
+                    continue;
+                }
+                let (html, _) =
+                    render_block_html(root, block, Some(out_dir), &mut image_counter, &mut caption_counts)?;
+                body.push_str(&html);
+            }
+            body.push_str(&page_number_html(book, page));
+            page += 1;
+            body.push_str("</section>");
         }
-        body.push_str(&page_number_html(book, index));
-        body.push_str("</section>");
     }
-    let theme_css = format!(
-        "body{{background:{};color:{};font-family:{}}}section{{position:relative;min-height:720px}}",
-        escape_html(&book.page_color),
-        escape_html(&book.ink_color),
-        escape_html(&book.font_family)
-    );
+    let theme_css = if paged {
+        format!(
+            "html,body{{background:{};color:{};font-family:{};line-height:{}}}",
+            escape_html(&book.page_color),
+            escape_html(&book.ink_color),
+            escape_html(&book.font_family),
+            book.line_height
+        )
+    } else {
+        format!(
+            "body{{background:{};color:{};font-family:{};line-height:{}}}",
+            escape_html(&book.page_color),
+            escape_html(&book.ink_color),
+            escape_html(&book.font_family),
+            book.line_height
+        )
+    };
+    let base_css = if paged { PDF_CSS } else { HTML_CSS };
     Ok(format!(
         r#"<!doctype html>
 <html lang="tr">
@@ -584,30 +709,49 @@ fn build_html(
 <style>{}{}{}</style>
 </head>
 <body>
-<header>
-  <p class="kicker">Kitap Stüdyosu</p>
-  <h1 class="title">{}</h1>
-  {}
-  {}
-</header>
 {}
 </body>
 </html>"#,
         escape_html(&book.title),
-        HTML_CSS,
+        base_css,
         theme_css,
         extra_css,
-        escape_html(&book.title),
-        book.subtitle
-            .as_deref()
-            .map(|value| format!("<p class=\"subtitle\">{}</p>", escape_html(value)))
-            .unwrap_or_default(),
-        book.author
-            .as_deref()
-            .map(|value| format!("<p class=\"author\">{}</p>", escape_html(value)))
-            .unwrap_or_default(),
         body
     ))
+}
+
+fn is_front_page(title: &str, names: &[&str]) -> bool {
+    let folded = title
+        .trim()
+        .replace(['İ', 'I'], "i")
+        .to_lowercase();
+    names.iter().any(|name| folded == *name)
+}
+
+fn hidden_in_pdf(block: &ContentBlock) -> bool {
+    matches!(block.data.get("showInPdf"), Some(value) if value.as_bool() == Some(false))
+}
+
+fn split_export_pages(blocks: &[ContentBlock], paged: bool) -> Vec<Vec<ContentBlock>> {
+    if !paged {
+        return vec![blocks.to_vec()];
+    }
+    let mut pages: Vec<Vec<ContentBlock>> = vec![Vec::new()];
+    for block in blocks {
+        if block.block_type == "pageBreak" {
+            pages.push(Vec::new());
+            continue;
+        }
+        if let Some(last) = pages.last_mut() {
+            last.push(block.clone());
+        }
+    }
+    pages.retain(|page| !page.is_empty());
+    if pages.is_empty() {
+        vec![Vec::new()]
+    } else {
+        pages
+    }
 }
 
 fn chapter_heading(chapter: &Chapter) -> String {
@@ -617,11 +761,10 @@ fn chapter_heading(chapter: &Chapter) -> String {
     }
 }
 
-fn page_number_html(book: &Book, index: usize) -> String {
+fn page_number_html(book: &Book, number: i64) -> String {
     if !book.page_numbers {
         return String::new();
     }
-    let number = book.page_number_start + index as i64;
     let align = match book.page_number_align.as_str() {
         "left" => "left",
         "right" => "right",
@@ -752,7 +895,63 @@ fn wrap_block_style(block: &ContentBlock, inner: String) -> String {
     }
     if let Some(size) = style.get("fontSize").and_then(|value| value.as_f64()) {
         css.push_str(&format!("font-size:{size}px;"));
+    } else {
+        let heading_size = style
+            .get("headingSize")
+            .and_then(|value| value.as_u64())
+            .or_else(|| {
+                block
+                    .data
+                    .get("level")
+                    .and_then(|value| value.as_u64())
+            });
+        if let Some(level) = heading_size {
+            let px = match level {
+                1 => 28,
+                3 => 18,
+                _ => 22,
+            };
+            css.push_str(&format!("font-size:{px}px;font-weight:700;"));
+        }
     }
+    if let Some(align) = style.get("align").and_then(|value| value.as_str()) {
+        css.push_str(&format!("text-align:{};", escape_html(align)));
+    }
+    if let Some(line_height) = style.get("lineHeight").and_then(|value| value.as_f64()) {
+        css.push_str(&format!("line-height:{line_height};"));
+    }
+    let list_marker = if block.block_type == "heading" {
+        None
+    } else {
+        style
+            .get("listMarker")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let marker_attr = if let Some(marker) = list_marker {
+        if matches!(
+            marker,
+            "disc"
+                | "circle"
+                | "square"
+                | "decimal"
+                | "decimal-leading-zero"
+                | "lower-alpha"
+                | "upper-alpha"
+                | "lower-roman"
+                | "upper-roman"
+                | "none"
+        ) {
+            css.push_str(&format!("--ks-list-type:{};", escape_html(marker)));
+        } else {
+            let escaped = marker.replace('\\', "\\\\").replace('"', "\\\"");
+            css.push_str(&format!("--ks-list-type:\"{escaped} \";"));
+        }
+        format!(r#" data-list-marker="{}""#, escape_html(marker))
+    } else {
+        String::new()
+    };
     if placement == "free" {
         let x = style.get("x").and_then(|value| value.as_f64()).unwrap_or(6.0);
         let y = style.get("y").and_then(|value| value.as_f64()).unwrap_or(8.0);
@@ -763,13 +962,15 @@ fn wrap_block_style(block: &ContentBlock, inner: String) -> String {
         css.push_str(&format!(
             "position:absolute;left:{x}%;top:{y}%;width:{width}%;box-sizing:border-box;"
         ));
-        return format!(r#"<div class="textbox" style="{css}">{inner}</div>"#);
+        return format!(
+            r#"<div class="textbox" data-block-kind="{}" style="{css}"{marker_attr}>{inner}</div>"#,
+            escape_html(&block.block_type)
+        );
     }
-    if css.is_empty() {
-        inner
-    } else {
-        format!(r#"<div style="{css}">{inner}</div>"#)
-    }
+    format!(
+        r#"<div data-block-kind="{}" style="{css}"{marker_attr}>{inner}</div>"#,
+        escape_html(&block.block_type)
+    )
 }
 
 #[derive(Default)]
@@ -791,10 +992,39 @@ fn render_video_html(block: &ContentBlock, index: usize) -> Result<String, AppEr
         .and_then(|value| value.as_str())
         .unwrap_or("")
         .trim();
+    let tiled = block
+        .data
+        .get("tile")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let width = block
+        .data
+        .get("width")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(100.0);
+    let align = block
+        .data
+        .get("align")
+        .and_then(|value| value.as_str())
+        .unwrap_or("center");
+    let tile_style = if tiled {
+        format!(
+            "width:{width}%;margin:{};",
+            match align {
+                "left" => "0 auto 12px 0",
+                "right" => "0 0 12px auto",
+                _ => "0 auto 12px",
+            }
+        )
+    } else {
+        String::new()
+    };
     let mut html = format!(
-        r#"<div class="video-block"><p><strong>{}</strong></p>"#,
-        escape_html(title)
+        r#"<div class="video-block{}" style="{}">"#,
+        if tiled { " video-tile" } else { "" },
+        tile_style
     );
+    html.push_str(&format!(r#"<p><strong>{}</strong></p>"#, escape_html(title)));
     if !url.is_empty() {
         html.push_str(&format!(
             r#"<p><a href="{}">{}</a></p>"#,
@@ -856,21 +1086,21 @@ fn qr_figure(
     let Some(svg) = make_qr_svg(payload) else {
         return Ok(format!("<p>QR: {}</p>", escape_html(payload)));
     };
+    let bytes = svg;
     *image_counter += 1;
     let filename = format!("qr-{}.svg", *image_counter);
     if let Some(dir) = out_dir {
         fs::create_dir_all(dir.join("images"))?;
-        fs::write(dir.join("images").join(&filename), &svg)?;
+        fs::write(dir.join("images").join(&filename), &bytes)?;
     } else {
-        images.push((filename.clone(), svg, "image/svg+xml".into()));
+        images.push((filename, bytes.clone(), "image/svg+xml".into()));
     }
-    let alt = caption.unwrap_or("QR kod");
     let cap = caption
         .map(|value| format!(r#"<figcaption class="media-cap">{}</figcaption>"#, escape_html(value)))
         .unwrap_or_default();
+    let svg = String::from_utf8_lossy(&bytes);
     Ok(format!(
-        r#"<figure class="qr"><img src="images/{filename}" alt="{}"/>{cap}</figure>"#,
-        escape_html(alt),
+        r#"<figure class="qr"><div class="qr-svg">{svg}</div>{cap}</figure>"#,
     ))
 }
 
@@ -1120,18 +1350,46 @@ section{margin:48px 0}
 .page-num{position:absolute;bottom:18px;left:24px;right:24px;font-size:12px;letter-spacing:.08em;opacity:.7}
 img{max-width:100%;height:auto;border-radius:12px}
 figure.qr{display:flex;flex-direction:column;align-items:center;margin:16px 0;text-align:center}
-figure.qr img{width:180px;height:180px;border-radius:8px;background:#fff;padding:8px;box-sizing:border-box}
+.qr-svg,figure.qr svg,figure.qr img{width:180px;height:180px;background:#fff}
 figure.qr figcaption,.media-cap{font-size:11px;color:#6b6478;margin-top:6px;text-align:center;line-height:1.35}
 .video-block{margin:16px 0}
+.video-tile{overflow:hidden}
 table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #dbe4ef;padding:8px;text-align:left}
 ul{list-style:disc;padding-left:1.4em}
 ol{list-style:decimal;padding-left:1.4em}
+[data-list-marker] ul,[data-list-marker] ol{list-style-type:var(--ks-list-type)}
+h1,h2,h3,[data-block-kind="heading"] ul,[data-block-kind="heading"] ol,[data-block-kind="heading"] li{list-style:none;padding-left:0}
 .info{background:#fffbeb;border:1px solid #fde68a;padding:12px 16px;border-radius:12px}
 .warn{background:#fff7ed;border:1px solid #fdba74;padding:12px 16px;border-radius:12px}
 .page-break{break-after:page;border-top:1px dashed #cbd5e1;margin:24px 0}
 pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto}
 @media print{body{margin:0;max-width:none}}
+"#;
+
+const PDF_CSS: &str = r#"
+@page{size:201.17mm 243.33mm;margin:0}
+html,body{margin:0;padding:0;width:760px;height:920px;background:#fff;color:#152033;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.sheet{width:760px;height:920px;max-height:920px;box-sizing:border-box;padding:56px 64px 112px;overflow:hidden;page-break-after:always;page-break-inside:avoid;break-after:page;break-inside:avoid;position:relative}
+.sheet:last-child{page-break-after:auto;break-after:auto}
+.sheet *{max-width:100%}
+h1,h2,h3{font-size:22px;margin:0 0 12px}
+.title{font-size:36px;margin:0}
+.subtitle,.author,.kicker{color:#5b6578}
+.page-num{position:absolute;bottom:28px;left:64px;right:64px;font-size:12px;letter-spacing:.08em;opacity:.7}
+img{max-width:100%;max-height:360px;height:auto;object-fit:contain}
+figure.qr{display:flex;flex-direction:column;align-items:center;margin:16px 0;text-align:center;break-inside:avoid}
+.qr-svg,figure.qr svg{width:160px;height:160px;background:#fff}
+figure.qr figcaption,.media-cap{font-size:11px;color:#6b6478;margin-top:6px;text-align:center}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #dbe4ef;padding:8px;text-align:left}
+ul{list-style:disc;padding-left:1.4em}
+ol{list-style:decimal;padding-left:1.4em}
+[data-list-marker] ul,[data-list-marker] ol{list-style-type:var(--ks-list-type)}
+h1,h2,h3,[data-block-kind="heading"] ul,[data-block-kind="heading"] ol,[data-block-kind="heading"] li{list-style:none;padding-left:0}
+.info{background:#fffbeb;border:1px solid #fde68a;padding:12px 16px;border-radius:12px}
+.warn{background:#fff7ed;border:1px solid #fdba74;padding:12px 16px;border-radius:12px}
+pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto;max-height:280px}
 "#;
 
 const MOBILE_CSS: &str = r#"
@@ -1146,4 +1404,4 @@ table{font-size:0.95rem;display:block;overflow-x:auto}
 .toc{position:sticky;top:0}
 "#;
 
-const EPUB_CSS: &str = "body{font-family:serif;line-height:1.5;position:relative}img{max-width:100%}figure.qr{text-align:center;margin:16px 0}figure.qr img{width:160px;height:160px}.media-cap{font-size:11px;color:#555;text-align:center;margin-top:6px}.page-num{margin-top:32px;font-size:12px;text-align:center;opacity:.7}ul{list-style:disc;padding-left:1.4em}ol{list-style:decimal;padding-left:1.4em}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:6px}";
+const EPUB_CSS: &str = "body{font-family:serif;line-height:1.5;position:relative}img{max-width:100%}figure.qr{text-align:center;margin:16px 0}figure.qr img{width:160px;height:160px}.media-cap{font-size:11px;color:#555;text-align:center;margin-top:6px}.page-num{margin-top:32px;font-size:12px;text-align:center;opacity:.7}ul{list-style:disc;padding-left:1.4em}ol{list-style:decimal;padding-left:1.4em}[data-list-marker] ul,[data-list-marker] ol{list-style-type:var(--ks-list-type)}[data-heading-size=\"1\"]{font-size:28px;font-weight:700}[data-heading-size=\"2\"]{font-size:22px;font-weight:700}[data-heading-size=\"3\"]{font-size:18px;font-weight:700}h1,h2,h3{list-style:none}[data-block-kind=\"heading\"] ul,[data-block-kind=\"heading\"] ol,[data-block-kind=\"heading\"] li{list-style:none;padding-left:0}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:6px}";

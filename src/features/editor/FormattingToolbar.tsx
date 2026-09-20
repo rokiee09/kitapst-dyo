@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
   AlignCenter,
+  AlignJustify,
   AlignLeft,
   AlignRight,
   Bold,
@@ -17,7 +18,8 @@ import {
 import { tr } from "@/i18n/tr";
 import { cn } from "@/lib/utils";
 import { applyLink } from "@/utils/links";
-import { PAGE_FONTS } from "@/features/blocks/blockStyle";
+import { PAGE_FONTS, LINE_SPACINGS, LIST_MARKER_OPTIONS, HEADING_SIZE_OPTIONS, effectiveHeadingSize, parseHeadingSize } from "@/features/blocks/blockStyle";
+import { SpecialCharsButton } from "@/features/editor/SpecialCharsButton";
 import { useEditorStore } from "@/stores/editorStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -35,56 +37,52 @@ export function FormattingToolbar() {
   const book = useWorkspaceStore((state) => state.book);
   const updateBook = useWorkspaceStore((state) => state.updateBook);
 
-  function convertToHeading(level: 1 | 2 | 3) {
+  function applyHeadingSize(level: 1 | 2 | 3 | undefined) {
     if (!selected) return;
-    const data = {
-      ...((selected.data as Record<string, unknown> | null) ?? {}),
-      level,
-      content: editor?.getJSON() ?? emptyDoc(),
-    };
-    useEditorStore.getState().updateBlockLocal(selected.id, { data });
-    const blocks = useEditorStore.getState().blocks.map((block) =>
-      block.id === selected.id ? { ...block, type: "heading" as const, data } : block,
-    );
-    useEditorStore.setState({ blocks });
+    const data = { ...((selected.data as Record<string, unknown> | null) ?? {}) };
+    if (level) data.level = level;
+    else delete data.level;
+    data.content = editor?.getJSON() ?? emptyDoc();
+    useEditorStore.getState().updateBlockLocal(selected.id, {
+      data,
+      style: { ...selected.style, headingSize: level },
+    });
+    if (level) {
+      const blocks = useEditorStore.getState().blocks.map((block) =>
+        block.id === selected.id ? { ...block, type: "heading" as const, data, style: { ...block.style, headingSize: level, listMarker: undefined } } : block,
+      );
+      useEditorStore.setState({ blocks });
+      editor?.chain().focus().liftListItem("listItem").setHeading({ level }).run();
+    } else {
+      editor?.chain().focus().setParagraph().run();
+    }
     void useEditorStore.getState().flushSave(selected.id);
-    editor?.chain().focus().setHeading({ level }).run();
   }
 
-  function convertToParagraph() {
+  function applyPageAlign(align: "left" | "center" | "right" | "justify") {
+    editor?.chain().focus().setTextAlign(align).run();
     if (!selected) return;
-    const data = {
-      ...((selected.data as Record<string, unknown> | null) ?? {}),
-      content: editor?.getJSON() ?? emptyDoc(),
-    };
-    const blocks = useEditorStore.getState().blocks.map((block) =>
-      block.id === selected.id ? { ...block, type: "paragraph" as const, data } : block,
-    );
-    useEditorStore.setState({ blocks });
-    void useEditorStore.getState().flushSave(selected.id);
-    editor?.chain().focus().setParagraph().run();
+    useEditorStore.getState().updateBlockLocal(selected.id, {
+      style: { ...selected.style, align },
+    });
+    useEditorStore.getState().scheduleSave(selected.id);
   }
 
-  const headingValue =
-    selected?.type === "heading"
-      ? String(((selected.data as { level?: number } | null)?.level ?? 2) as number)
-      : "p";
+  const headingValue = String(effectiveHeadingSize(selected?.style, selected?.data) ?? "");
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-b border-[#1c314c] bg-[#0c1829] px-3">
+    <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-[#1c314c] bg-[#0c1829] px-3">
       <select
         className="h-8 rounded-md border border-[#1c314c] bg-[#102038] px-2 text-xs text-white"
+        title="Başlık boyutu (isteğe bağlı)"
         value={headingValue}
-        onChange={(event) => {
-          const value = event.target.value;
-          if (value === "p") convertToParagraph();
-          else convertToHeading(Number(value) as 1 | 2 | 3);
-        }}
+        onChange={(event) => applyHeadingSize(parseHeadingSize(event.target.value))}
       >
-        <option value="p">{tr.editor.paragraph}</option>
-        <option value="1">{tr.editor.heading1}</option>
-        <option value="2">{tr.editor.heading2}</option>
-        <option value="3">{tr.editor.heading3}</option>
+        {HEADING_SIZE_OPTIONS.map((item) => (
+          <option key={item.value || "default"} value={item.value}>
+            {item.label}
+          </option>
+        ))}
       </select>
       <span className="mx-1 h-4 w-px bg-[#1c314c]" />
       <ToolButton label={tr.editor.bold} active={editor?.isActive("bold")} onClick={() => editor?.chain().focus().toggleBold().run()}>
@@ -101,24 +99,96 @@ export function FormattingToolbar() {
         <UnderlineIcon size={15} />
       </ToolButton>
       <span className="mx-1 h-4 w-px bg-[#1c314c]" />
-      <ToolButton label={tr.editor.bulletList} active={editor?.isActive("bulletList")} onClick={() => editor?.chain().focus().toggleBulletList().run()}>
+      <ToolButton
+        label={tr.editor.bulletList}
+        active={editor?.isActive("bulletList")}
+        onClick={() => {
+          if (editor?.isActive("heading")) {
+            editor.chain().focus().setParagraph().toggleBulletList().run();
+            if (selected) {
+              const blocks = useEditorStore.getState().blocks.map((block) =>
+                block.id === selected.id
+                  ? { ...block, type: "paragraph" as const, style: { ...selected.style, headingSize: undefined } }
+                  : block,
+              );
+              useEditorStore.setState({ blocks });
+            }
+            return;
+          }
+          editor?.chain().focus().toggleBulletList().run();
+        }}
+      >
         <List size={15} />
       </ToolButton>
       <ToolButton
         label={tr.editor.numberedList}
         active={editor?.isActive("orderedList")}
-        onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+        onClick={() => {
+          if (editor?.isActive("heading")) {
+            editor.chain().focus().setParagraph().toggleOrderedList().run();
+            if (selected) {
+              const blocks = useEditorStore.getState().blocks.map((block) =>
+                block.id === selected.id
+                  ? { ...block, type: "paragraph" as const, style: { ...selected.style, headingSize: undefined } }
+                  : block,
+              );
+              useEditorStore.setState({ blocks });
+            }
+            return;
+          }
+          editor?.chain().focus().toggleOrderedList().run();
+        }}
       >
         <ListOrdered size={15} />
       </ToolButton>
-      <ToolButton label="Sola hizala" active={editor?.isActive({ textAlign: "left" })} onClick={() => editor?.chain().focus().setTextAlign("left").run()}>
+      <select
+        className="h-8 max-w-[118px] rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
+        disabled={selected?.type === "heading"}
+        title={selected?.type === "heading" ? "Başlıklarda madde işareti yok" : "Madde işareti (isteğe bağlı)"}
+        value={selected?.style.listMarker ?? ""}
+        onChange={(event) => {
+          if (!selected || selected.type === "heading") return;
+          const listMarker = event.target.value || undefined;
+          useEditorStore.getState().updateBlockLocal(selected.id, {
+            style: { ...selected.style, listMarker },
+          });
+          useEditorStore.getState().scheduleSave(selected.id);
+        }}
+      >
+        {LIST_MARKER_OPTIONS.map((item) => (
+          <option key={item.value || "default"} value={item.value}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+      <SpecialCharsButton editor={editor} />
+      <ToolButton
+        label="Sola yasla"
+        active={editor?.isActive({ textAlign: "left" }) || selected?.style.align === "left"}
+        onClick={() => applyPageAlign("left")}
+      >
         <AlignLeft size={15} />
       </ToolButton>
-      <ToolButton label="Ortala" active={editor?.isActive({ textAlign: "center" })} onClick={() => editor?.chain().focus().setTextAlign("center").run()}>
+      <ToolButton
+        label="Ortala"
+        active={editor?.isActive({ textAlign: "center" }) || selected?.style.align === "center"}
+        onClick={() => applyPageAlign("center")}
+      >
         <AlignCenter size={15} />
       </ToolButton>
-      <ToolButton label="Sağa hizala" active={editor?.isActive({ textAlign: "right" })} onClick={() => editor?.chain().focus().setTextAlign("right").run()}>
+      <ToolButton
+        label="Sağa yasla"
+        active={editor?.isActive({ textAlign: "right" }) || selected?.style.align === "right"}
+        onClick={() => applyPageAlign("right")}
+      >
         <AlignRight size={15} />
+      </ToolButton>
+      <ToolButton
+        label="İki yana yasla"
+        active={editor?.isActive({ textAlign: "justify" }) || selected?.style.align === "justify"}
+        onClick={() => applyPageAlign("justify")}
+      >
+        <AlignJustify size={15} />
       </ToolButton>
       <ToolButton label={tr.editor.link} onClick={() => applyLink(editor)}>
         <Link2 size={15} />
@@ -153,6 +223,37 @@ export function FormattingToolbar() {
         <option value="22px">22</option>
         <option value="28px">28</option>
       </select>
+      <select
+        className="h-8 max-w-[92px] rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
+        title="Satır aralığı"
+        value={String(selected?.style.lineHeight ?? book?.lineHeight ?? 1.15)}
+        onChange={(event) => {
+          const lineHeight = Number(event.target.value);
+          if (selected) {
+            useEditorStore.getState().updateBlockLocal(selected.id, {
+              style: { ...selected.style, lineHeight },
+            });
+            useEditorStore.getState().scheduleSave(selected.id);
+          }
+          if (book) {
+            void updateBook({ ...book, lineHeight }, { silent: true });
+          }
+        }}
+      >
+        {LINE_SPACINGS.map((item) => (
+          <option key={item.value} value={item.value}>
+            Aralık {item.label}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        title="Yazım ve basit hataları bul"
+        onClick={() => useUiStore.getState().openProofread()}
+        className="flex h-7 shrink-0 items-center rounded bg-amber-600/80 px-2 text-[11px] font-semibold text-white hover:bg-amber-500"
+      >
+        Denetle
+      </button>
       <ToolButton label="Word’den içe aktar" onClick={() => void importWordIntoChapter()}>
         <FileInput size={15} />
       </ToolButton>

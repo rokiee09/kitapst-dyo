@@ -1,11 +1,11 @@
-import { toast } from "sonner";
 import { tr } from "@/i18n/tr";
 import { Button } from "@/components/ui/button";
-import { exportService, folderService, projectService } from "@/services";
+import { runBookExport } from "@/features/export/runExport";
+import { folderService } from "@/services";
 
 const FORMATS = [
   { id: "epub", title: tr.export.epub, enabled: true, note: "Gerçek EPUB 3 dosyası üretir." },
-  { id: "pdf", title: tr.export.pdf, enabled: true, note: "Edge/Chrome varsa sayfa PDF’i; yoksa metin PDF üretir." },
+  { id: "pdf", title: tr.export.pdf, enabled: true, note: "Uygulamadaki sayfa boyutu ve sayısı ile PDF üretir. QR kodlar da basılır." },
   { id: "html", title: tr.export.html, enabled: true, note: "Tek sayfalık HTML kitap üretir." },
   { id: "zip", title: tr.export.zip, enabled: true, note: "Proje yedeğini ZIP olarak oluşturur." },
   { id: "mobile", title: tr.export.mobile, enabled: true, note: tr.export.mobileHint },
@@ -27,28 +27,7 @@ export function ExportView() {
               className="mt-4"
               disabled={!format.enabled}
               variant={format.enabled ? "default" : "secondary"}
-              onClick={() => {
-                if (format.id === "zip") {
-                  void projectService
-                    .createBackup()
-                    .then((path) => toast.success(`Yedek oluşturuldu: ${path}`))
-                    .catch((error: unknown) =>
-                      toast.error(error instanceof Error ? error.message : "Yedek oluşturulamadı."),
-                    );
-                  return;
-                }
-                if (format.id === "html" || format.id === "epub" || format.id === "pdf" || format.id === "mobile") {
-                  void exportService
-                    .run(format.id)
-                    .then((result) => {
-                      toast.success(`Oluşturuldu: ${result.outputPath}`);
-                      void folderService.open(format.id === "mobile" ? "mobile" : format.id);
-                    })
-                    .catch((error: unknown) =>
-                      toast.error(error instanceof Error ? error.message : "Dışa aktarma başarısız."),
-                    );
-                }
-              }}
+              onClick={() => void runBookExport(format.id)}
             >
               {format.enabled ? "Oluştur" : tr.export.comingSoon}
             </Button>

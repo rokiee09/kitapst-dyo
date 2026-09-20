@@ -44,7 +44,19 @@ export function BlockCanvas({
   const pageColor = book?.pageColor || "#ffffff";
   const inkColor = book?.inkColor || "#152033";
   const fontFamily = book?.fontFamily || "Segoe UI";
-  const useCustomPaper = !dark || pageColor.toLowerCase() !== "#ffffff";
+  const paperStyle = dark
+    ? {
+        background: "#111827",
+        color: "#e5e7eb",
+        fontFamily,
+        ["--ks-line-height" as string]: String(book?.lineHeight ?? 1.15),
+      }
+    : {
+        background: pageColor,
+        color: inkColor,
+        fontFamily,
+        ["--ks-line-height" as string]: String(book?.lineHeight ?? 1.15),
+      };
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -63,7 +75,7 @@ export function BlockCanvas({
     <article
       className={cn(
         "book-page relative w-full shadow-[0_18px_50px_rgba(0,0,0,0.35)]",
-        dark && !useCustomPaper ? "book-page-dark bg-[#111827] text-[#e5e7eb]" : "bg-white",
+        dark ? "book-page-dark" : "bg-white",
         previewing && previewMode === "phone"
           ? "min-h-[640px] rounded-none px-5 pb-16 pt-8"
           : previewing && previewMode === "tablet"
@@ -72,11 +84,7 @@ export function BlockCanvas({
               ? "min-h-[calc(100vh-220px)] max-w-[760px] rounded-sm px-16 pb-28 pt-14"
               : "min-h-[calc(100vh-280px)] max-w-[820px] rounded-xl px-12 pb-40 pt-12",
       )}
-      style={
-        useCustomPaper
-          ? { background: pageColor, color: inkColor, fontFamily }
-          : { fontFamily }
-      }
+      style={paperStyle}
     >
       {previewing ? (
         <header className={cn("mb-8 border-b pb-4", dark ? "border-white/10" : "border-[#e8e0d4]")}>

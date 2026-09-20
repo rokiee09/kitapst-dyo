@@ -20,13 +20,23 @@ export function PageLayoutPreview({
 
 function MiniSlot({ slot }: { slot: LayoutSlot }) {
   if (slot === "heading") {
-    return <div className="h-2.5 w-3/4 rounded-sm bg-[#1d4ed8]/80" />;
+    return <div className="h-2.5 w-3/4 rounded-sm bg-[#111111]" />;
   }
   if (slot === "text") {
     return (
       <div className="space-y-1">
         <div className="h-1.5 w-full rounded-sm bg-[#c5bda8]" />
         <div className="h-1.5 w-5/6 rounded-sm bg-[#d6d0c4]" />
+      </div>
+    );
+  }
+  if (slot === "text-left" || slot === "text-center" || slot === "text-right" || slot === "text-justify") {
+    const align =
+      slot === "text-center" ? "items-center" : slot === "text-right" ? "items-end" : "items-start";
+    return (
+      <div className={cn("flex flex-col gap-1", align)}>
+        <div className="h-1.5 w-full rounded-sm bg-[#c5bda8]" />
+        <div className={cn("h-1.5 rounded-sm bg-[#d6d0c4]", slot === "text-justify" ? "w-full" : "w-2/3")} />
       </div>
     );
   }
@@ -60,6 +70,9 @@ function MiniSlot({ slot }: { slot: LayoutSlot }) {
   }
   if (slot === "video") {
     return <div className="flex h-9 items-center justify-center rounded-sm bg-[#111827] text-[8px] text-white/80">▶ video</div>;
+  }
+  if (slot === "video-tile") {
+    return <div className="flex h-8 w-[48%] items-center justify-center rounded-sm bg-[#111827] text-[8px] text-white/80">▶ döşe</div>;
   }
   if (slot === "qr") {
     return <div className="ml-auto h-7 w-7 rounded-sm border border-[#1c314c] bg-white" />;

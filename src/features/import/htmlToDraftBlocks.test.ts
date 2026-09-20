@@ -10,6 +10,14 @@ describe("htmlToDraftBlocks", () => {
     expect(JSON.stringify(blocks)).toContain("Merhaba");
     expect(JSON.stringify(blocks)).toContain("kalın");
   });
+
+  it("hizalama ve görseli korur", () => {
+    const blocks = htmlToDraftBlocks(
+      '<p style="text-align:right">Sağ</p><p style="text-align:center"><img src="data:image/png;base64,aa" alt="foto" /></p>',
+    );
+    expect(blocks[0]?.style?.align).toBe("right");
+    expect(blocks[1]?.type).toBe("image");
+  });
 });
 
 describe("plainTextToDraftBlocks", () => {

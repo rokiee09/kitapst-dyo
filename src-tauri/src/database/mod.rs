@@ -58,7 +58,7 @@ pub fn get_project(conn: &Connection) -> Result<Project, AppError> {
 
 pub fn get_book(conn: &Connection) -> Result<Book, AppError> {
     conn.query_row(
-        "SELECT id, project_id, title, subtitle, author, description, language, isbn, publisher, cover_asset_id, page_color, ink_color, font_family, page_numbers, page_number_align, page_number_start, created_at, updated_at
+        "SELECT id, project_id, title, subtitle, author, description, language, isbn, publisher, cover_asset_id, page_color, ink_color, font_family, page_numbers, page_number_align, page_number_start, line_height, created_at, updated_at
          FROM book LIMIT 1",
         [],
         map_book,
@@ -84,8 +84,9 @@ pub fn map_book(row: &rusqlite::Row<'_>) -> rusqlite::Result<Book> {
         page_numbers: row.get::<_, i64>(13).unwrap_or(0) != 0,
         page_number_align: row.get(14).unwrap_or_else(|_| "center".to_string()),
         page_number_start: row.get(15).unwrap_or(1),
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        line_height: row.get(16).unwrap_or(1.15),
+        created_at: row.get(17)?,
+        updated_at: row.get(18)?,
     })
 }
 

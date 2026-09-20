@@ -10,6 +10,7 @@ import { readVideoData } from "@/features/blocks/blockData";
 import { useEditorStore } from "@/stores/editorStore";
 import { isSafeExternalUrl } from "@/utils/security";
 import { vimeoEmbedUrl, vimeoVideoId, youtubeEmbedUrl, youtubeVideoId } from "@/utils/videoUrls";
+import { cn } from "@/lib/utils";
 import type { ContentBlock } from "@/types/domain";
 
 export function VideoBlock({ block, editable }: { block: ContentBlock; editable: boolean }) {
@@ -95,11 +96,26 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
 
   const youtubeId = urlOk ? youtubeVideoId(data.url) : null;
   const vimeoId = urlOk ? vimeoVideoId(data.url) : null;
+  const alignClass =
+    data.align === "left" ? "mr-auto" : data.align === "right" ? "ml-auto" : "mx-auto";
+  const floatClass =
+    data.tile && data.align === "left"
+      ? "float-left mr-3 mb-2"
+      : data.tile && data.align === "right"
+        ? "float-right ml-3 mb-2"
+        : "";
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-[1.4fr_1fr] gap-3 rounded-xl border border-[#dbe4ef] bg-[#f8fafc] p-3">
-        <div className="min-w-0 overflow-hidden rounded-lg bg-slate-900">
+    <div className={data.tile ? "min-h-[8rem]" : "space-y-3"}>
+      <div
+        className={
+          data.tile
+            ? cn("overflow-hidden rounded-lg bg-slate-900", alignClass, floatClass)
+            : "grid grid-cols-[1.4fr_1fr] gap-3 rounded-xl border border-[#dbe4ef] bg-[#f8fafc] p-3"
+        }
+        style={data.tile ? { width: `${data.width}%` } : undefined}
+      >
+        <div className={data.tile ? "min-w-0" : "min-w-0 overflow-hidden rounded-lg bg-slate-900"}>
           {data.previewAsPdf ? (
             thumbSrc ? (
               <img src={thumbSrc} alt="" className="h-full w-full object-cover" />
@@ -113,19 +129,24 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
               vimeoId={vimeoId}
               url={data.url}
               urlOk={urlOk}
+              fit={data.fit}
+              tile={data.tile}
             />
           )}
         </div>
-        <div className="min-w-0 py-1">
-          <div className="text-sm font-semibold text-[#152033]">{data.title || "Eğitim Videosu"}</div>
-          {data.description ? <p className="mt-1 text-xs text-[#5b6578]">{data.description}</p> : null}
-          {data.duration ? <div className="mt-3 text-xs text-[#5b6578]">Süre: {data.duration}</div> : null}
-          <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-[#5b6578]">
-            {hasLocal ? <span className="rounded bg-white px-1.5 py-0.5">Yerel dosya</span> : null}
-            {urlOk ? <span className="rounded bg-white px-1.5 py-0.5">Bağlantı</span> : null}
+        {data.tile ? null : (
+          <div className="min-w-0 py-1">
+            <div className="text-sm font-semibold text-[#152033]">{data.title || "Eğitim Videosu"}</div>
+            {data.description ? <p className="mt-1 text-xs text-[#5b6578]">{data.description}</p> : null}
+            {data.duration ? <div className="mt-3 text-xs text-[#5b6578]">Süre: {data.duration}</div> : null}
+            <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-[#5b6578]">
+              {hasLocal ? <span className="rounded bg-white px-1.5 py-0.5">Yerel dosya</span> : null}
+              {urlOk ? <span className="rounded bg-white px-1.5 py-0.5">Bağlantı</span> : null}
+            </div>
           </div>
-        </div>
+        )}
       </div>
+      {data.tile ? <div className="clear-both" /> : null}
       <MediaCaption
         blockId={block.id}
         kind="video"
@@ -202,6 +223,54 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
           <p className="text-[10px] text-[#5b6578]">
             QR isteğe bağlıdır. Eklendiğinde ayrı bir QR bloğu oluşur; telefon videoya yönlenir.
           </p>
+          <label className="flex items-center gap-2 text-sm text-[#152033]">
+            <input
+              type="checkbox"
+              className="accent-blue-600"
+              checked={data.tile}
+              onChange={(event) =>
+                patch({
+                  tile: event.target.checked,
+                  width: event.target.checked ? 48 : 100,
+                  align: event.target.checked ? "left" : "center",
+                  fit: "cover",
+                })
+              }
+            />
+            Sayfaya döşe
+          </label>
+          {data.tile ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <select
+                className="h-8 rounded-md border border-[#dbe4ef] bg-white px-2 text-sm"
+                value={data.align}
+                onChange={(event) => patch({ align: event.target.value })}
+              >
+                <option value="left">Sola yasla</option>
+                <option value="center">Ortala</option>
+                <option value="right">Sağa yasla</option>
+              </select>
+              <select
+                className="h-8 rounded-md border border-[#dbe4ef] bg-white px-2 text-sm"
+                value={data.fit}
+                onChange={(event) => patch({ fit: event.target.value })}
+              >
+                <option value="cover">Kutuyu doldur</option>
+                <option value="contain">Sığdır</option>
+              </select>
+              <label className="col-span-full text-[11px] text-[#5b6578]">
+                Genişlik %{data.width}
+                <input
+                  type="range"
+                  min={20}
+                  max={100}
+                  value={data.width}
+                  className="mt-1 w-full accent-blue-600"
+                  onChange={(event) => patch({ width: Number(event.target.value) })}
+                />
+              </label>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -214,15 +283,20 @@ function VideoPlayer({
   vimeoId,
   url,
   urlOk,
+  fit,
+  tile,
 }: {
   localSrc: string | null;
   youtubeId: string | null;
   vimeoId: string | null;
   url: string;
   urlOk: boolean;
+  fit: "contain" | "cover";
+  tile: boolean;
 }) {
+  const box = tile ? "aspect-video w-full bg-black" : "w-full rounded-md bg-black";
   if (localSrc) {
-    return <video src={localSrc} controls className="w-full rounded-md bg-black" />;
+    return <video src={localSrc} controls className={cn(box, fit === "cover" ? "object-cover" : "object-contain")} />;
   }
   if (youtubeId) {
     return (

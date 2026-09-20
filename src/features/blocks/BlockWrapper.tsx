@@ -10,6 +10,7 @@ import {
   canFloat,
   clampBox,
   defaultFreeStyle,
+  effectiveHeadingSize,
   isFree,
   snapPercent,
 } from "@/features/blocks/blockStyle";
@@ -24,6 +25,7 @@ interface BlockWrapperProps {
 
 export function BlockWrapper({ block, children, editable }: BlockWrapperProps) {
   const selected = useEditorStore((state) => state.selectedBlockId === block.id);
+  const locateHere = useEditorStore((state) => state.locateQuery?.blockId === block.id);
   const free = isFree(block.style);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: block.id,
@@ -31,7 +33,7 @@ export function BlockWrapper({ block, children, editable }: BlockWrapperProps) {
   });
 
   const style: CSSProperties = {
-    ...blockBoxStyle(block.style, free),
+    ...blockBoxStyle(block.style, free, block.type),
     transform: free ? undefined : CSS.Transform.toString(transform),
     transition: free ? undefined : transition,
     zIndex: free ? (selected ? 12 : 6) : undefined,
@@ -157,13 +159,24 @@ export function BlockWrapper({ block, children, editable }: BlockWrapperProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [editable, selected, free, block.id]);
 
+  useEffect(() => {
+    if (!locateHere) return;
+    document.getElementById(`block-${block.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [locateHere, block.id]);
+
   return (
     <div
       ref={setNodeRef}
       style={style}
+      data-list-marker={block.type === "heading" ? undefined : block.style.listMarker?.trim() || undefined}
+      data-block-kind={block.type}
+      data-heading-size={block.style.fontSize ? undefined : effectiveHeadingSize(block.style, block.data)}
+      id={`block-${block.id}`}
+      data-block-id={block.id}
       className={cn(
         "group relative rounded-md px-2 py-1",
         selected && !free && "ring-2 ring-blue-500",
+        locateHere && "ring-2 ring-amber-400",
         isDragging && "opacity-70",
         free && "cursor-grab rounded-sm p-0 active:cursor-grabbing",
         selected && free && "outline outline-1 outline-blue-500/80",

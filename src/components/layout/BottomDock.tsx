@@ -8,11 +8,10 @@ import {
   Smartphone,
   Tablet,
 } from "lucide-react";
-import { toast } from "sonner";
+import { runBookExport } from "@/features/export/runExport";
 import { tr } from "@/i18n/tr";
 import { cn } from "@/lib/utils";
 import { VersionMenu } from "@/features/versions/VersionMenu";
-import { exportService, folderService, projectService } from "@/services";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { PreviewMode } from "@/types/domain";
@@ -62,29 +61,7 @@ export function BottomDock() {
                 item.color,
                 !item.enabled && "opacity-90",
               )}
-              onClick={() => {
-                if (item.id === "zip") {
-                  void projectService
-                    .createBackup()
-                    .then((path) => toast.success(`Yedek oluşturuldu: ${path}`))
-                    .catch((error: unknown) =>
-                      toast.error(error instanceof Error ? error.message : "Yedek oluşturulamadı."),
-                    );
-                  return;
-                }
-                if (item.id === "html" || item.id === "epub" || item.id === "pdf" || item.id === "mobile") {
-                  void exportService
-                    .run(item.id)
-                    .then((result) => {
-                      toast.success(`Oluşturuldu: ${result.outputPath}`);
-                      void folderService.open(item.id === "mobile" ? "mobile" : item.id);
-                    })
-                    .catch((error: unknown) =>
-                      toast.error(error instanceof Error ? error.message : "Dışa aktarma başarısız."),
-                    );
-                  return;
-                }
-              }}
+              onClick={() => void runBookExport(item.id)}
             >
               {item.id === "epub" ? <BookOpen size={18} /> : null}
               {item.id === "pdf" ? <FileText size={18} /> : null}

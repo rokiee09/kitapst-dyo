@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { tr } from "@/i18n/tr";
 import { cn } from "@/lib/utils";
+import { BookPageInsertButtons } from "@/features/templates/BookPageInsertButtons";
 import { importWordIntoChapter } from "@/features/import/importWord";
 import { useEditorStore } from "@/stores/editorStore";
 import type { BlockType } from "@/types/domain";
@@ -56,6 +57,10 @@ export function BlockPalette() {
         <FileInput size={15} />
         Word’den içe aktar
       </button>
+      <div className="mb-3">
+        <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8aa0b8]">Kitap sayfaları</h3>
+        <BookPageInsertButtons compact />
+      </div>
       <div className="grid grid-cols-2 gap-2">
         {ITEMS.map((item) => {
           const Icon = item.icon;

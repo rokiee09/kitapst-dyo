@@ -26,7 +26,10 @@ interface WorkspaceState {
   selectedChapterId: string | null;
   load: () => Promise<WorkspaceSnapshot | null>;
   selectChapter: (chapterId: string) => Promise<ContentBlock[]>;
-  createChapter: (parentId?: string | null) => Promise<Chapter | null>;
+  createChapter: (
+    parentId?: string | null,
+    options?: { title?: string; templateId?: string | null },
+  ) => Promise<Chapter | null>;
   renameChapter: (id: string, title: string) => Promise<void>;
   deleteChapter: (id: string) => Promise<void>;
   duplicateChapter: (id: string) => Promise<void>;
@@ -48,6 +51,7 @@ interface WorkspaceState {
     pageNumbers?: boolean;
     pageNumberAlign?: "left" | "center" | "right";
     pageNumberStart?: number;
+    lineHeight?: number;
   }, options?: { silent?: boolean }) => Promise<void>;
   createVersion: (version: string, changelog: string) => Promise<void>;
   restoreVersion: (versionId: string) => Promise<void>;
@@ -100,14 +104,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return blocks;
   },
 
-  createChapter: async (parentId = null) => {
+  createChapter: async (parentId = null, options) => {
     const book = get().book;
     if (!book) return null;
     try {
       const chapter = await chapterService.create({
         bookId: book.id,
         parentId,
-        title: parentId ? "Yeni Alt Bölüm" : "Yeni Bölüm",
+        title: options?.title?.trim() || (parentId ? "Yeni Alt Bölüm" : "Yeni Bölüm"),
+        templateId: options?.templateId ?? null,
       });
       set({ chapters: [...get().chapters, chapter], selectedChapterId: chapter.id });
       await get().refreshStats();

@@ -102,6 +102,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     migrate_v3(conn)?;
     migrate_v4(conn)?;
     migrate_v5(conn)?;
+    migrate_v6(conn)?;
     Ok(())
 }
 
@@ -231,5 +232,16 @@ fn migrate_v5(conn: &Connection) -> Result<(), AppError> {
         )?;
     }
     ensure_migration(conn, 5)?;
+    Ok(())
+}
+
+fn migrate_v6(conn: &Connection) -> Result<(), AppError> {
+    if !column_exists(conn, "book", "line_height") {
+        conn.execute(
+            "ALTER TABLE book ADD COLUMN line_height REAL NOT NULL DEFAULT 1.15",
+            [],
+        )?;
+    }
+    ensure_migration(conn, 6)?;
     Ok(())
 }

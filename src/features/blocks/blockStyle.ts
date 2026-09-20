@@ -1,7 +1,92 @@
 import type { CSSProperties } from "react";
 import type { BlockStyle, BlockType } from "@/types/domain";
 
+export const LIST_STYLE_KEYWORDS = new Set([
+  "disc",
+  "circle",
+  "square",
+  "decimal",
+  "decimal-leading-zero",
+  "lower-alpha",
+  "upper-alpha",
+  "lower-roman",
+  "upper-roman",
+  "none",
+]);
+
+export const LIST_MARKER_OPTIONS = [
+  { value: "", label: "Varsayılan" },
+  { value: "disc", label: "• Nokta" },
+  { value: "circle", label: "○ Boş daire" },
+  { value: "square", label: "■ Kare" },
+  { value: "decimal", label: "1. 2. 3." },
+  { value: "decimal-leading-zero", label: "01. 02. 03." },
+  { value: "lower-alpha", label: "a. b. c." },
+  { value: "upper-alpha", label: "A. B. C." },
+  { value: "lower-roman", label: "i. ii. iii." },
+  { value: "upper-roman", label: "I. II. III." },
+  { value: "–", label: "– Tire" },
+  { value: "—", label: "— Uzun çizgi" },
+  { value: "→", label: "→ Ok" },
+  { value: "★", label: "★ Yıldız" },
+  { value: "✦", label: "✦ Işıltı" },
+  { value: "✓", label: "✓ Onay" },
+  { value: "❖", label: "❖ Elmas" },
+  { value: "▸", label: "▸ Üçgen" },
+  { value: "▪", label: "▪ Küçük kare" },
+  { value: "none", label: "İşaretsiz" },
+] as const;
+
+export function listMarkerCss(marker: string | undefined): CSSProperties {
+  const value = marker?.trim();
+  if (!value) return {};
+  if (LIST_STYLE_KEYWORDS.has(value)) {
+    return {
+      ["--ks-list-type" as string]: value,
+    };
+  }
+  const escaped = value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+  return {
+    ["--ks-list-type" as string]: `"${escaped} "`,
+  };
+}
+
 export const FREEABLE_TYPES: BlockType[] = ["paragraph", "heading", "image", "video", "qr"];
+
+export const LINE_SPACINGS = [
+  { value: 1, label: "1,0" },
+  { value: 1.15, label: "1,15" },
+  { value: 1.5, label: "1,5" },
+  { value: 2, label: "2,0" },
+  { value: 2.5, label: "2,5" },
+  { value: 3, label: "3,0" },
+] as const;
+
+export const HEADING_SIZE_OPTIONS = [
+  { value: "", label: "Varsayılan" },
+  { value: "1", label: "H1" },
+  { value: "2", label: "H2" },
+  { value: "3", label: "H3" },
+] as const;
+
+export const HEADING_SIZE_PX: Record<1 | 2 | 3, number> = {
+  1: 28,
+  2: 22,
+  3: 18,
+};
+
+export function parseHeadingSize(value: unknown): 1 | 2 | 3 | undefined {
+  const level = typeof value === "number" ? value : Number(value);
+  if (level === 1 || level === 2 || level === 3) return level;
+  return undefined;
+}
+
+export function effectiveHeadingSize(style: BlockStyle | undefined, data: unknown): 1 | 2 | 3 | undefined {
+  const fromStyle = parseHeadingSize(style?.headingSize);
+  if (fromStyle) return fromStyle;
+  if (!data || typeof data !== "object") return undefined;
+  return parseHeadingSize((data as { level?: unknown }).level);
+}
 
 export const PAGE_FONTS = [
   { value: "Segoe UI", label: "Segoe UI" },
@@ -72,12 +157,16 @@ export function blockLabel(type: BlockType): string {
   }
 }
 
-export function blockBoxStyle(style: BlockStyle, free: boolean): CSSProperties {
-  const css: CSSProperties = {};
+export function blockBoxStyle(style: BlockStyle, free: boolean, type?: BlockType): CSSProperties {
+  const css: CSSProperties = {
+    ...(type === "heading" ? {} : listMarkerCss(style.listMarker)),
+  };
   if (style.color) css.color = style.color;
   if (style.background) css.background = style.background;
   if (style.fontFamily) css.fontFamily = style.fontFamily;
   if (style.fontSize) css.fontSize = `${style.fontSize}px`;
+  if (style.align) css.textAlign = style.align;
+  if (style.lineHeight) css.lineHeight = style.lineHeight;
   if (free) {
     css.position = "absolute";
     css.left = `${style.x ?? 6}%`;

@@ -1,7 +1,7 @@
 use crate::database::{self, new_id, now};
 use crate::error::AppError;
 use crate::filesystem;
-use crate::models::{Asset, ImportAssetPayload};
+use crate::models::{Asset, ImportAssetBytesPayload, ImportAssetPayload};
 use crate::state::AppState;
 use base64::Engine;
 use rusqlite::params;
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
-const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "svg"];
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "svg", "gif"];
 const VIDEO_EXTS: &[&str] = &["mp4", "webm", "mov", "mkv"];
 const FILE_EXTS: &[&str] = &[
     "pdf", "zip", "epub", "txt", "md", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "csv", "rtf",
@@ -97,9 +97,22 @@ pub fn import_asset(
             format!("{} -> {}: {err}", source.display(), destination.display()),
         )
     })?;
-    assert_inside_project(&root, &destination)?;
+    insert_asset_row(&state, &asset_type, &safe_name, &relative_path, &ext, size, &asset_id)
+}
 
-    let mime = mime_for_ext(&ext);
+fn insert_asset_row(
+    state: &tauri::State<AppState>,
+    asset_type: &str,
+    safe_name: &str,
+    relative_path: &str,
+    ext: &str,
+    size: u64,
+    asset_id: &str,
+) -> Result<Asset, AppError> {
+    let root = state.project_root()?;
+    let destination = filesystem::safe_child_path(&root, relative_path)?;
+    assert_inside_project(&root, &destination)?;
+    let mime = mime_for_ext(ext);
     let ts = now();
     let conn = state.db()?;
     let project = database::get_project(&conn)?;
@@ -117,7 +130,67 @@ pub fn import_asset(
             ts
         ],
     )?;
-    get_asset(&conn, &asset_id)
+    get_asset(&conn, asset_id)
+}
+
+#[tauri::command]
+pub fn import_asset_bytes(
+    state: tauri::State<AppState>,
+    payload: ImportAssetBytesPayload,
+) -> Result<Asset, AppError> {
+    let asset_type = payload.asset_type.trim().to_lowercase();
+    if asset_type != "image" {
+        return Err(AppError::user(
+            "Yalnızca görsel baytları içe aktarılabilir.",
+            asset_type,
+        ));
+    }
+    let size = payload.bytes.len() as u64;
+    if size == 0 || size > MAX_IMAGE_BYTES {
+        return Err(AppError::user(
+            "Görsel boyutu geçersiz.",
+            format!("size={size}"),
+        ));
+    }
+    let original_name = if payload.filename.trim().is_empty() {
+        "word-gorsel.png".to_string()
+    } else {
+        filesystem::sanitize_filename(&payload.filename)
+    };
+    let ext = Path::new(&original_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_else(|| "png".to_string());
+    if !IMAGE_EXTS.contains(&ext.as_str()) {
+        return Err(AppError::user(
+            "Bu görsel uzantısı desteklenmiyor.",
+            format!("ext={ext}"),
+        ));
+    }
+    let asset_id = new_id();
+    let stored_name = format!("{asset_id}-{original_name}");
+    let relative_path = format!("assets/images/{stored_name}");
+    let root = state.project_root()?;
+    let destination = filesystem::safe_child_path(&root, &relative_path)?;
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&destination, &payload.bytes).map_err(|err| {
+        AppError::user(
+            "Görsel kaydedilemedi.",
+            format!("{}: {err}", destination.display()),
+        )
+    })?;
+    insert_asset_row(
+        &state,
+        &asset_type,
+        &original_name,
+        &relative_path,
+        &ext,
+        size,
+        &asset_id,
+    )
 }
 
 #[tauri::command]
@@ -271,6 +344,7 @@ fn mime_for_ext(ext: &str) -> &'static str {
         "png" => "image/png",
         "webp" => "image/webp",
         "svg" => "image/svg+xml",
+        "gif" => "image/gif",
         "mp4" => "video/mp4",
         "webm" => "video/webm",
         "mov" => "video/quicktime",

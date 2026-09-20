@@ -196,6 +196,29 @@ pub fn apply_template(
         serde_json::from_str(&raw)?
     };
     let specs = blocks_spec.as_array().cloned().unwrap_or_default();
+    insert_specs(&conn, &payload.chapter_id, &specs)?;
+    database::list_blocks(&conn, &payload.chapter_id)
+}
+
+pub fn insert_template_blocks(
+    conn: &rusqlite::Connection,
+    chapter_id: &str,
+    template_id: &str,
+) -> Result<(), AppError> {
+    let blocks_spec = builtin_templates()
+        .into_iter()
+        .find(|item| item.id == template_id)
+        .map(|item| item.payload)
+        .ok_or_else(|| AppError::user("Şablon bulunamadı.", template_id.to_string()))?;
+    let specs = blocks_spec.as_array().cloned().unwrap_or_default();
+    insert_specs(conn, chapter_id, &specs)
+}
+
+fn insert_specs(
+    conn: &rusqlite::Connection,
+    chapter_id: &str,
+    specs: &[serde_json::Value],
+) -> Result<(), AppError> {
     for spec in specs {
         let block_type = spec
             .get("type")
@@ -205,15 +228,16 @@ pub fn apply_template(
             continue;
         }
         let data = spec.get("data").cloned().unwrap_or_else(|| crate::commands::default_block_data(block_type));
+        let style = spec.get("style").cloned().unwrap_or_else(|| serde_json::json!({}));
         let ts = now();
-        let order = database::next_block_order(&conn, &payload.chapter_id)?;
+        let order = database::next_block_order(conn, chapter_id)?;
         conn.execute(
             "INSERT INTO content_block (id, chapter_id, type, sort_order, data, style, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, '{}', ?6, ?7)",
-            params![new_id(), payload.chapter_id, block_type, order, data.to_string(), ts, ts],
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![new_id(), chapter_id, block_type, order, data.to_string(), style.to_string(), ts, ts],
         )?;
     }
-    database::list_blocks(&conn, &payload.chapter_id)
+    Ok(())
 }
 
 #[tauri::command]
@@ -403,12 +427,42 @@ fn builtin_templates() -> Vec<ChapterTemplate> {
     vec![
         layout(
             "builtin-kapak",
-            "Kapak görseli",
-            "Tam sayfa görsel, başlık ve kısa giriş",
+            "Kapak",
+            "Kapak sayfası: görsel, kitap adı ve yazar. Bölümler panelinden ekleyin.",
             json!([
                 image_block(100, "center", "Kapak görseli"),
-                heading_block(1, "Kitap veya bölüm başlığı"),
-                { "type": "paragraph" }
+                heading_aligned(1, "Kitap veya bölüm başlığı", "center"),
+                paragraph_aligned("center", "Alt başlık veya kısa tanıtım"),
+                paragraph_aligned("center", "Yazar adı")
+            ]),
+        ),
+        layout(
+            "builtin-onsoz",
+            "Önsöz",
+            "Önsöz sayfası. Bölümler panelinden sayfa olarak ekleyin.",
+            json!([
+                heading_aligned(1, "Önsöz", "center"),
+                paragraph_aligned("justify", "Önsöz metnini buraya yazın."),
+                paragraph_aligned("right", "Tarih / yer")
+            ]),
+        ),
+        layout(
+            "builtin-icindekiler",
+            "İçindekiler",
+            "İçindekiler sayfası. Bölümler panelinden ekleyin, maddeleri düzenleyin.",
+            json!([
+                heading_aligned(1, "İçindekiler", "center"),
+                { "type": "orderedList" }
+            ]),
+        ),
+        layout(
+            "builtin-giris",
+            "Giriş",
+            "Giriş sayfası: özet kutu ve ilk paragraf. Bölümler panelinden ekleyin.",
+            json!([
+                heading_aligned(1, "Giriş", "left"),
+                { "type": "infoBox" },
+                paragraph_aligned("justify", "Giriş metnini buraya yazın.")
             ]),
         ),
         layout(
@@ -506,6 +560,52 @@ fn builtin_templates() -> Vec<ChapterTemplate> {
             ]),
         ),
         layout(
+            "builtin-metin-sol",
+            "Metin sola yaslı",
+            "Başlık ve gövde soldan hizalı",
+            json!([
+                heading_aligned(2, "Sol hizalı başlık", "left"),
+                paragraph_aligned("left", "Paragraf sola yaslanır.")
+            ]),
+        ),
+        layout(
+            "builtin-metin-orta",
+            "Metin ortalı",
+            "Başlık ve gövde sayfa ortasında",
+            json!([
+                heading_aligned(2, "Ortalanmış başlık", "center"),
+                paragraph_aligned("center", "Paragraf ortalanır.")
+            ]),
+        ),
+        layout(
+            "builtin-metin-sag",
+            "Metin sağa yaslı",
+            "Başlık ve gövde sağdan hizalı",
+            json!([
+                heading_aligned(2, "Sağ hizalı başlık", "right"),
+                paragraph_aligned("right", "Paragraf sağa yaslanır.")
+            ]),
+        ),
+        layout(
+            "builtin-metin-iki-yana",
+            "Metin iki yana yaslı",
+            "Kitap sayfası gibi iki yana hizalı gövde",
+            json!([
+                heading_aligned(2, "İki yana yaslı metin", "left"),
+                paragraph_aligned("justify", "Paragraf satır boyunca iki yana yaslanır.")
+            ]),
+        ),
+        layout(
+            "builtin-video-dose",
+            "Video döşeme",
+            "Videoyu sayfaya döşeyip sola veya sağa hizalayın",
+            json!([
+                heading_block(2, "Video"),
+                video_tile_block("left", 48),
+                { "type": "paragraph" }
+            ]),
+        ),
+        layout(
             "builtin-uyari",
             "Uyarı sayfası",
             "Uyarı kutusu, görsel ve madde listesi",
@@ -532,18 +632,70 @@ fn layout(id: &str, name: &str, description: &str, payload: serde_json::Value) -
 }
 
 fn heading_block(level: u64, text: &str) -> serde_json::Value {
+    heading_aligned(level, text, "left")
+}
+
+fn heading_aligned(level: u64, text: &str, align: &str) -> serde_json::Value {
     json!({
         "type": "heading",
+        "style": { "align": align },
         "data": {
             "level": level,
             "content": {
                 "type": "doc",
                 "content": [{
                     "type": "heading",
-                    "attrs": { "level": level },
+                    "attrs": { "level": level, "textAlign": align },
                     "content": [{ "type": "text", "text": text }]
                 }]
             }
+        }
+    })
+}
+
+fn paragraph_aligned(align: &str, text: &str) -> serde_json::Value {
+    json!({
+        "type": "paragraph",
+        "style": { "align": align },
+        "data": {
+            "content": {
+                "type": "doc",
+                "content": [{
+                    "type": "paragraph",
+                    "attrs": { "textAlign": align },
+                    "content": [{ "type": "text", "text": text }]
+                }]
+            }
+        }
+    })
+}
+
+fn video_tile_block(align: &str, width: i64) -> serde_json::Value {
+    json!({
+        "type": "video",
+        "style": { "align": align },
+        "data": {
+            "sourceType": "local",
+            "assetId": null,
+            "relativePath": null,
+            "title": "Video",
+            "caption": "",
+            "captionCustom": false,
+            "captionVisible": true,
+            "description": "",
+            "url": "",
+            "thumbnailAssetId": null,
+            "thumbnailPath": null,
+            "duration": "",
+            "generateQr": false,
+            "showInEpub": true,
+            "showInPdf": true,
+            "showInHtml": true,
+            "previewAsPdf": false,
+            "tile": true,
+            "width": width,
+            "align": align,
+            "fit": "cover"
         }
     })
 }

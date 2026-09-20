@@ -53,7 +53,7 @@ pub fn update_book(
     let book = database::get_book(&conn)?;
     let ts = now();
     conn.execute(
-        "UPDATE book SET title = ?1, subtitle = ?2, author = ?3, description = ?4, language = ?5, isbn = ?6, publisher = ?7, cover_asset_id = ?8, page_color = ?9, ink_color = ?10, font_family = ?11, page_numbers = ?12, page_number_align = ?13, page_number_start = ?14, updated_at = ?15 WHERE id = ?16",
+        "UPDATE book SET title = ?1, subtitle = ?2, author = ?3, description = ?4, language = ?5, isbn = ?6, publisher = ?7, cover_asset_id = ?8, page_color = ?9, ink_color = ?10, font_family = ?11, page_numbers = ?12, page_number_align = ?13, page_number_start = ?14, line_height = ?15, updated_at = ?16 WHERE id = ?17",
         params![
             payload.title.trim(),
             empty_to_none(payload.subtitle),
@@ -93,6 +93,10 @@ pub fn update_book(
                 .filter(|value| matches!(*value, "left" | "center" | "right"))
                 .unwrap_or(&book.page_number_align),
             payload.page_number_start.unwrap_or(book.page_number_start).clamp(0, 9999),
+            payload
+                .line_height
+                .unwrap_or(book.line_height)
+                .clamp(1.0, 3.0),
             ts,
             book.id
         ],
@@ -136,12 +140,9 @@ pub fn create_chapter(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![id, payload.book_id, payload.parent_id, title, number, order, ts, ts],
     )?;
-    let block_id = new_id();
-    conn.execute(
-        "INSERT INTO content_block (id, chapter_id, type, sort_order, data, style, created_at, updated_at)
-         VALUES (?1, ?2, 'paragraph', 0, ?3, '{}', ?4, ?5)",
-        params![block_id, id, default_paragraph_json(), ts, ts],
-    )?;
+    if let Some(template_id) = payload.template_id.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        crate::extras::insert_template_blocks(&conn, &id, template_id)?;
+    }
     database::get_chapter(&conn, &id)
 }
 
@@ -353,10 +354,11 @@ pub fn create_block(
     let data = payload
         .data
         .unwrap_or_else(|| default_block_data(&payload.block_type));
+    let style = payload.style.unwrap_or_else(|| serde_json::json!({}));
     conn.execute(
         "INSERT INTO content_block (id, chapter_id, type, sort_order, data, style, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, '{}', ?6, ?7)",
-        params![id, payload.chapter_id, payload.block_type, order, data.to_string(), ts, ts],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![id, payload.chapter_id, payload.block_type, order, data.to_string(), style.to_string(), ts, ts],
     )?;
     database::get_block(&conn, &id)
 }
@@ -545,7 +547,6 @@ fn default_paragraph_json() -> String {
 pub fn default_block_data(block_type: &str) -> serde_json::Value {
     match block_type {
         "heading" => json!({
-            "level": 2,
             "content": {
                 "type": "doc",
                 "content": [{ "type": "heading", "attrs": { "level": 2 } }]

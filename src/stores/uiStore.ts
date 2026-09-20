@@ -12,6 +12,7 @@ interface UiState {
   collapsedChapterIds: string[];
   zoom: number;
   paperDark: boolean;
+  rightTab: "blocks" | "properties" | "design" | "proofread";
   setView: (view: AppView) => void;
   toggleLeft: () => void;
   toggleRight: () => void;
@@ -24,6 +25,8 @@ interface UiState {
   toggleChapterCollapsed: (id: string) => void;
   setZoom: (zoom: number) => void;
   togglePaperDark: () => void;
+  setRightTab: (tab: UiState["rightTab"]) => void;
+  openProofread: () => void;
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
@@ -37,6 +40,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   collapsedChapterIds: [],
   zoom: 100,
   paperDark: false,
+  rightTab: "blocks",
   setView: (view) => set({ view, previewing: view === "book" || view === "chapters" ? get().previewing : false }),
   toggleLeft: () => set({ leftCollapsed: !get().leftCollapsed }),
   toggleRight: () => set({ rightCollapsed: !get().rightCollapsed }),
@@ -60,6 +64,14 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
   setZoom: (zoom) => set({ zoom: Math.min(150, Math.max(75, zoom)) }),
   togglePaperDark: () => set({ paperDark: !get().paperDark }),
+  setRightTab: (rightTab) => set({ rightTab, rightCollapsed: false }),
+  openProofread: () =>
+    set({
+      view: "book",
+      previewing: false,
+      rightCollapsed: false,
+      rightTab: "proofread",
+    }),
   toggleChapterCollapsed: (id) => {
     const current = get().collapsedChapterIds;
     set({

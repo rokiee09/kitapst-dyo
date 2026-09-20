@@ -14,17 +14,25 @@ interface EditorState {
   saveError: string | null;
   activeEditor: Editor | null;
   pendingTimers: Record<string, number>;
+  locateQuery: { blockId: string; query: string; token: number } | null;
   setBlocks: (blocks: ContentBlock[]) => void;
   selectBlock: (id: string | null) => void;
   setActiveEditor: (editor: Editor | null) => void;
-  addBlock: (type: BlockType, afterBlockId?: string | null, data?: unknown) => Promise<void>;
+  locateInBlock: (blockId: string, query: string) => void;
+  clearLocate: () => void;
+  addBlock: (
+    type: BlockType,
+    afterBlockId?: string | null,
+    data?: unknown,
+    style?: BlockStyle,
+  ) => Promise<void>;
   updateBlockLocal: (id: string, patch: { data?: unknown; style?: BlockStyle }) => void;
   scheduleSave: (id: string) => void;
   flushSave: (id?: string) => Promise<void>;
   removeBlock: (id: string) => Promise<void>;
   duplicateBlock: (id: string) => Promise<void>;
   reorder: (orderedIds: string[]) => Promise<void>;
-  importDrafts: (drafts: { type: BlockType; data: unknown }[]) => Promise<void>;
+  importDrafts: (drafts: { type: BlockType; data: unknown; style?: BlockStyle }[]) => Promise<void>;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -34,6 +42,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   saveError: null,
   activeEditor: null,
   pendingTimers: {},
+  locateQuery: null,
 
   setBlocks: (blocks) =>
     set({
@@ -44,8 +53,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   selectBlock: (id) => set({ selectedBlockId: id }),
   setActiveEditor: (editor) => set({ activeEditor: editor }),
+  locateInBlock: (blockId, query) => {
+    set({
+      selectedBlockId: blockId,
+      locateQuery: { blockId, query, token: Date.now() },
+    });
+    window.setTimeout(() => {
+      const current = get().locateQuery;
+      if (current?.blockId === blockId) set({ locateQuery: null });
+    }, 1400);
+  },
+  clearLocate: () => set({ locateQuery: null }),
 
-  addBlock: async (type, afterBlockId = null, data) => {
+  addBlock: async (type, afterBlockId = null, data, style) => {
     const chapterId =
       get().blocks[0]?.chapterId ?? useWorkspaceStore.getState().selectedChapterId;
     if (!chapterId) {
@@ -59,6 +79,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         type,
         afterBlockId: afterBlockId ?? selected?.id ?? null,
         data,
+        style,
       });
       const unique = Array.from(
         new Map([...get().blocks, created].map((block) => [block.id, block])).values(),
@@ -173,7 +194,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (drafts.length === 0) return;
     let afterId = get().selectedBlockId;
     for (const draft of drafts) {
-      await get().addBlock(draft.type, afterId, draft.data);
+      await get().addBlock(draft.type, afterId, draft.data, draft.style);
       afterId = get().selectedBlockId;
     }
   },

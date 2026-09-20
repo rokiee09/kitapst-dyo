@@ -1,11 +1,16 @@
 export type LayoutSlot =
   | "heading"
   | "text"
+  | "text-left"
+  | "text-center"
+  | "text-right"
+  | "text-justify"
   | "image-full"
   | "image-mid"
   | "image-left"
   | "image-right"
   | "video"
+  | "video-tile"
   | "qr"
   | "info"
   | "warn"
@@ -15,7 +20,13 @@ export type LayoutSlot =
 export function layoutSlotsFor(id: string, payload: unknown): LayoutSlot[] {
   switch (id) {
     case "builtin-kapak":
-      return ["image-full", "heading", "text"];
+      return ["image-full", "heading", "text-center"];
+    case "builtin-onsoz":
+      return ["heading", "text-justify"];
+    case "builtin-icindekiler":
+      return ["heading", "list"];
+    case "builtin-giris":
+      return ["heading", "info", "text-justify"];
     case "builtin-gorsel-ust":
       return ["image-full", "heading", "text"];
     case "builtin-gorsel-orta":
@@ -34,6 +45,16 @@ export function layoutSlotsFor(id: string, payload: unknown): LayoutSlot[] {
       return ["heading", "image-full", "video", "qr"];
     case "builtin-alinti-gorsel":
       return ["quote", "image-mid", "text"];
+    case "builtin-metin-sol":
+      return ["heading", "text-left"];
+    case "builtin-metin-orta":
+      return ["heading", "text-center"];
+    case "builtin-metin-sag":
+      return ["heading", "text-right"];
+    case "builtin-metin-iki-yana":
+      return ["heading", "text-justify"];
+    case "builtin-video-dose":
+      return ["heading", "video-tile", "text"];
     case "builtin-uyari":
       return ["warn", "image-mid", "text", "list"];
     default:
@@ -65,6 +86,7 @@ function slotForType(type: string, align: string, width: number): LayoutSlot {
       if (width < 90) return "image-mid";
       return "image-full";
     case "video":
+      if (width <= 55) return "video-tile";
       return "video";
     case "qr":
       return "qr";

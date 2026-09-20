@@ -8,6 +8,7 @@ mod extras;
 mod filesystem;
 mod library;
 mod models;
+mod proofread;
 mod state;
 
 use tauri::Manager;
@@ -49,6 +50,7 @@ pub fn run() {
             backup::create_backup,
             backup::restore_backup,
             assets::import_asset,
+            assets::import_asset_bytes,
             assets::list_assets,
             assets::read_asset_data_url,
             assets::resolve_asset_path,
@@ -71,6 +73,9 @@ pub fn run() {
             library::list_library_books,
             library::create_library_book,
             library::open_library_book,
+            proofread::proofread_ai,
+            proofread::save_proofread_settings,
+            proofread::load_proofread_settings,
         ])
         .run(tauri::generate_context!())
         .expect("Kitap Stüdyosu başlatılamadı.");

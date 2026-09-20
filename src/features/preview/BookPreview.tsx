@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BlockView } from "@/features/blocks/BlockView";
 import { BlockWrapper } from "@/features/blocks/BlockWrapper";
 import { DeviceFrame } from "@/features/preview/DeviceFrame";
@@ -24,6 +24,8 @@ export function BookPreview({
   const liveBlocks = useEditorStore((state) => state.blocks);
   const [loaded, setLoaded] = useState<{ chapter: Chapter; blocks: ContentBlock[] }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const sheetRefs = useRef<(HTMLElement | null)[]>([]);
 
   const ordered = useMemo(() => flattenChapterTree(buildChapterTree(chapters)), [chapters]);
 
@@ -59,17 +61,37 @@ export function BookPreview({
   const pageColor = book?.pageColor || "#ffffff";
   const inkColor = book?.inkColor || "#152033";
   const fontFamily = book?.fontFamily || "Segoe UI";
-  const paperStyle = { background: pageColor, color: inkColor, fontFamily };
+  const paperStyle = dark
+    ? {
+        background: "#111827",
+        color: "#e5e7eb",
+        fontFamily,
+        ["--ks-line-height" as string]: String(book?.lineHeight ?? 1.15),
+      }
+    : {
+        background: pageColor,
+        color: inkColor,
+        fontFamily,
+        ["--ks-line-height" as string]: String(book?.lineHeight ?? 1.15),
+      };
   const start = book?.pageNumberStart ?? 1;
 
   const sheets = useMemo(() => {
-    const items: { key: string; kind: "cover" | "toc" | "chapter"; chapter?: Chapter; blocks: ContentBlock[]; number: number | null }[] =
-      [];
-    items.push({ key: "cover", kind: "cover", blocks: [], number: null });
-    if (ordered.length > 0) {
-      items.push({ key: "toc", kind: "toc", blocks: [], number: null });
-    }
+    const items: {
+      key: string;
+      kind: "cover" | "toc" | "chapter";
+      chapter?: Chapter;
+      blocks: ContentBlock[];
+      number: number;
+      label: string;
+    }[] = [];
     let page = start;
+    items.push({ key: "cover", kind: "cover", blocks: [], number: page, label: "Kapak" });
+    page += 1;
+    if (ordered.length > 0) {
+      items.push({ key: "toc", kind: "toc", blocks: [], number: page, label: "İçindekiler" });
+      page += 1;
+    }
     for (const entry of loaded) {
       const source = entry.chapter.id === selectedChapterId ? liveBlocks : entry.blocks;
       const slices = splitByPageBreak(source);
@@ -79,13 +101,32 @@ export function BookPreview({
           kind: "chapter",
           chapter: entry.chapter,
           blocks,
-          number: book?.pageNumbers ? page : null,
+          number: page,
+          label: displayChapterLabel(entry.chapter),
         });
         page += 1;
       });
     }
     return items;
-  }, [book?.pageNumbers, loaded, liveBlocks, ordered.length, selectedChapterId, start]);
+  }, [loaded, liveBlocks, ordered.length, selectedChapterId, start]);
+
+  useEffect(() => {
+    const nodes = sheetRefs.current.filter((node): node is HTMLElement => Boolean(node));
+    if (nodes.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        const index = nodes.findIndex((node) => node === visible.target);
+        if (index >= 0) setCurrentIndex(index);
+      },
+      { threshold: [0.35, 0.55, 0.75] },
+    );
+    for (const node of nodes) observer.observe(node);
+    return () => observer.disconnect();
+  }, [sheets.length, previewMode]);
 
   const paperClass =
     previewMode === "phone"
@@ -94,15 +135,25 @@ export function BookPreview({
         ? "min-h-[720px] px-8 pb-20 pt-10"
         : "min-h-[920px] max-w-[760px] px-16 pb-24 pt-14";
 
+  const current = sheets[currentIndex];
+
   const inner = (
-    <div className="flex flex-col items-center gap-8 py-6">
+    <div className="relative flex flex-col items-center gap-8 py-6">
+      <div className="sticky top-2 z-20 rounded-full bg-[#0b1220]/90 px-3 py-1 text-[11px] text-white shadow">
+        Sayfa {current?.number ?? start} / {sheets.at(-1)?.number ?? start}
+        {current?.label ? ` — ${current.label}` : ""}
+      </div>
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
-      {sheets.map((sheet) => (
+      {sheets.map((sheet, index) => (
         <article
           key={sheet.key}
+          ref={(node) => {
+            sheetRefs.current[index] = node;
+          }}
           id={sheet.kind === "chapter" && sheet.chapter ? `preview-${sheet.chapter.id}` : sheet.key}
           className={cn(
             "book-page relative w-full shadow-[0_18px_50px_rgba(0,0,0,0.35)]",
+            dark && "book-page-dark",
             previewMode === "phone" ? "rounded-none" : "rounded-sm",
             paperClass,
           )}
@@ -115,16 +166,14 @@ export function BookPreview({
           ) : (
             <ChapterPage chapter={sheet.chapter!} blocks={sheet.blocks} first={sheet.key.endsWith("-0")} />
           )}
-          {sheet.number != null ? (
-            <div
-              className={cn(
-                "pointer-events-none absolute inset-x-8 bottom-7 text-xs tracking-widest opacity-70",
-                pageNumberAlignClass(book?.pageNumberAlign),
-              )}
-            >
-              {sheet.number}
-            </div>
-          ) : null}
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-x-8 bottom-7 text-xs tracking-widest opacity-70",
+              pageNumberAlignClass(book?.pageNumberAlign),
+            )}
+          >
+            {sheet.number}
+          </div>
         </article>
       ))}
     </div>
@@ -148,11 +197,6 @@ function CoverPage({ dark }: { dark: boolean }) {
       {book?.subtitle ? <p className="mt-4 max-w-md text-lg opacity-75">{book.subtitle}</p> : null}
       {book?.author ? <p className="mt-10 text-sm tracking-wide opacity-80">{book.author}</p> : null}
       {book?.publisher ? <p className="mt-2 text-xs opacity-60">{book.publisher}</p> : null}
-      {book?.pageNumbers ? (
-        <p className="mt-16 text-[11px] opacity-50">Sayfa numaraları bölüm sayfalarının altında görünür.</p>
-      ) : (
-        <p className="mt-16 text-[11px] opacity-40">Üst çubuktan “Sayfa numarası”nı açarak numaralandırabilirsiniz.</p>
-      )}
     </div>
   );
 }

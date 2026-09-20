@@ -7,6 +7,7 @@ export const blockStyleSchema = z.object({
   background: z.string().optional(),
   fontFamily: z.string().optional(),
   fontSize: z.number().optional(),
+  lineHeight: z.number().optional(),
   placement: z.enum(["flow", "free"]).optional(),
   x: z.number().optional(),
   y: z.number().optional(),
@@ -44,6 +45,7 @@ export const updateBookSchema = z.object({
   pageNumbers: z.boolean().optional(),
   pageNumberAlign: z.enum(["left", "center", "right"]).optional(),
   pageNumberStart: z.number().int().min(0).max(9999).optional(),
+  lineHeight: z.number().min(1).max(3).optional(),
 });
 
 export const imageBlockSchema = z.object({

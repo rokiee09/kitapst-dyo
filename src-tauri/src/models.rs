@@ -35,6 +35,8 @@ pub struct Book {
     pub page_number_align: String,
     #[serde(default = "default_page_number_start")]
     pub page_number_start: i64,
+    #[serde(default = "default_line_height")]
+    pub line_height: f64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -53,6 +55,10 @@ fn default_page_number_align() -> String {
 
 fn default_page_number_start() -> i64 {
     1
+}
+
+fn default_line_height() -> f64 {
+    1.15
 }
 
 fn default_font_family() -> String {
@@ -167,6 +173,7 @@ pub struct UpdateBookPayload {
     pub page_numbers: Option<bool>,
     pub page_number_align: Option<String>,
     pub page_number_start: Option<i64>,
+    pub line_height: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,6 +182,7 @@ pub struct CreateChapterPayload {
     pub book_id: String,
     pub parent_id: Option<String>,
     pub title: String,
+    pub template_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -185,6 +193,7 @@ pub struct CreateBlockPayload {
     pub block_type: String,
     pub after_block_id: Option<String>,
     pub data: Option<serde_json::Value>,
+    pub style: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -216,6 +225,14 @@ pub struct CreateVersionPayload {
 #[serde(rename_all = "camelCase")]
 pub struct ImportAssetPayload {
     pub source_path: String,
+    pub asset_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportAssetBytesPayload {
+    pub filename: String,
+    pub bytes: Vec<u8>,
     pub asset_type: String,
 }
 

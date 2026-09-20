@@ -45,13 +45,19 @@ export const bookService = {
     pageNumbers?: boolean;
     pageNumberAlign?: "left" | "center" | "right";
     pageNumberStart?: number;
+    lineHeight?: number;
   }): Promise<Book> {
     return invokeCommand<Book>("update_book", { payload });
   },
 };
 
 export const chapterService = {
-  create(payload: { bookId: string; parentId?: string | null; title: string }): Promise<Chapter> {
+  create(payload: {
+    bookId: string;
+    parentId?: string | null;
+    title: string;
+    templateId?: string | null;
+  }): Promise<Chapter> {
     return invokeCommand<Chapter>("create_chapter", { payload });
   },
   rename(id: string, title: string): Promise<Chapter> {
@@ -85,6 +91,7 @@ export const blockService = {
     type: string;
     afterBlockId?: string | null;
     data?: unknown;
+    style?: unknown;
   }): Promise<ContentBlock> {
     return invokeCommand<ContentBlock>("create_block", { payload });
   },

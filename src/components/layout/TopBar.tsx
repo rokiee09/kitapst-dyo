@@ -1,4 +1,4 @@
-import { BookOpen, Download, Eye, FileInput, FolderOpen, Library, Plus, Save, Settings } from "lucide-react";
+import { BookOpen, Download, Eye, FileInput, FolderOpen, Library, Plus, Save, Settings, SpellCheck } from "lucide-react";
 import { toast } from "sonner";
 import { tr } from "@/i18n/tr";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ export function TopBar() {
   const setView = useUiStore((state) => state.setView);
   const previewing = useUiStore((state) => state.previewing);
   const togglePreview = useUiStore((state) => state.togglePreview);
+  const openProofread = useUiStore((state) => state.openProofread);
   const initials = initialsFrom(book?.author || book?.title || "KS");
   const latest = versions[0]?.version ?? "1.0.0";
 
@@ -81,6 +82,10 @@ export function TopBar() {
       <div className="flex items-center gap-2">
         <VersionMenu />
         <span className="hidden text-xs text-[#8aa0b8] lg:inline">v{latest}</span>
+        <Button size="sm" variant="secondary" onClick={openProofread}>
+          <SpellCheck size={14} />
+          Yazım denetimi
+        </Button>
         <Button
           size="sm"
           variant={previewing ? "default" : "secondary"}

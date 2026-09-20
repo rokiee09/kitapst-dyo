@@ -44,6 +44,7 @@ export function readVideoData(value: unknown): VideoBlockData {
   const data = asRecord(value);
   const relativePath = nullableStr(data.relativePath);
   const url = str(data.url);
+  const align = data.align;
   return {
     sourceType: relativePath ? "local" : "external",
     assetId: nullableStr(data.assetId),
@@ -62,6 +63,10 @@ export function readVideoData(value: unknown): VideoBlockData {
     showInPdf: bool(data.showInPdf, true),
     showInHtml: bool(data.showInHtml, true),
     previewAsPdf: bool(data.previewAsPdf, false),
+    tile: bool(data.tile, false),
+    width: Math.min(100, Math.max(16, num(data.width, 100))),
+    align: align === "left" || align === "right" || align === "center" ? align : "center",
+    fit: data.fit === "contain" ? "contain" : "cover",
   };
 }
 

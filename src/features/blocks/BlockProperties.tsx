@@ -2,6 +2,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { readImageData, readQrData, readVideoData } from "@/features/blocks/blockData";
+import { HEADING_SIZE_OPTIONS, effectiveHeadingSize, parseHeadingSize } from "@/features/blocks/blockStyle";
 import { insertQrBlock } from "@/features/blocks/insertQr";
 import { useEditorStore } from "@/stores/editorStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -20,7 +21,8 @@ export function BlockProperties() {
   return (
     <div className="space-y-3 p-3">
       <Meta block={block} />
-      {block.type === "heading" ? <HeadingFields block={block} /> : null}
+      {block.type === "heading" || block.type === "paragraph" ? <HeadingFields block={block} /> : null}
+      {block.type === "orderedList" || block.type === "unorderedList" ? <ListMarkerFields block={block} /> : null}
       {typeof (block.data as { title?: unknown } | null)?.title === "string" &&
       block.type !== "image" &&
       block.type !== "video" &&
@@ -57,21 +59,59 @@ function Meta({ block }: { block: ContentBlock }) {
   );
 }
 
-function HeadingFields({ block }: { block: ContentBlock }) {
-  const data = (block.data ?? {}) as Record<string, unknown>;
+function ListMarkerFields({ block }: { block: ContentBlock }) {
+  const marker = block.style.listMarker ?? "";
   return (
     <div>
-      <Label htmlFor="heading-level">Başlık seviyesi</Label>
+      <Label htmlFor="prop-list-marker">Madde işareti</Label>
+      <Input
+        id="prop-list-marker"
+        className="mt-1"
+        placeholder="Boş bırakılırsa varsayılan"
+        maxLength={8}
+        value={marker}
+        onChange={(event) => {
+          const listMarker = event.target.value.trim() || undefined;
+          useEditorStore.getState().updateBlockLocal(block.id, {
+            style: { ...block.style, listMarker },
+          });
+          useEditorStore.getState().scheduleSave(block.id);
+        }}
+      />
+      <p className="mt-1 text-[11px] text-[#8aa0bd]">İsteğe bağlı. Örn. ★, →, a., I.</p>
+    </div>
+  );
+}
+
+function HeadingFields({ block }: { block: ContentBlock }) {
+  const data = (block.data ?? {}) as Record<string, unknown>;
+  const size = effectiveHeadingSize(block.style, data);
+  return (
+    <div>
+      <Label htmlFor="heading-level">Başlık boyutu</Label>
       <select
         id="heading-level"
         className="mt-1 h-8 w-full rounded-md border border-[#1c2a44] bg-[#070b14] px-2 text-sm"
-        value={typeof data.level === "number" ? data.level : 2}
-        onChange={(event) => patchBlock(block, { ...data, level: Number(event.target.value) })}
+        value={size ? String(size) : ""}
+        onChange={(event) => {
+          const headingSize = parseHeadingSize(event.target.value);
+          const next = { ...data };
+          if (headingSize) next.level = headingSize;
+          else delete next.level;
+          useEditorStore.getState().updateBlockLocal(block.id, {
+            data: next,
+            style: { ...block.style, headingSize },
+          });
+          useEditorStore.getState().scheduleSave(block.id);
+        }}
       >
-        <option value={1}>H1</option>
-        <option value={2}>H2</option>
-        <option value={3}>H3</option>
+        {HEADING_SIZE_OPTIONS.map((item) => (
+          <option key={item.value || "default"} value={item.value}>
+            {item.label}
+          </option>
+        ))}
       </select>
+      <p className="mt-1 text-[11px] text-[#8aa0bd]">İsteğe bağlı. Boş bırakılırsa sayfa yazı boyutu kullanılır.</p>
     </div>
   );
 }
@@ -210,6 +250,35 @@ function VideoFields({ block }: { block: ContentBlock }) {
       </button>
       {urlInvalid || !data.url.trim() ? (
         <p className="text-[11px] text-amber-400">Video QR’si için geçerli bir http/https adresi gerekli.</p>
+      ) : null}
+      <CheckField
+        id="video-tile"
+        label="Sayfaya döşe (genişlik ve hizalama)"
+        checked={data.tile}
+        onChange={(tile) => patchBlock(block, { ...data, tile, width: tile ? 48 : 100, align: tile ? "left" : "center" })}
+      />
+      {data.tile ? (
+        <>
+          <SelectField
+            id="video-align"
+            label="Hizalama"
+            value={data.align}
+            options={[
+              { value: "left", label: "Sol" },
+              { value: "center", label: "Orta" },
+              { value: "right", label: "Sağ" },
+            ]}
+            onChange={(align) => patchBlock(block, { ...data, align })}
+          />
+          <NumberField
+            id="video-width"
+            label="Genişlik (%)"
+            value={data.width}
+            min={20}
+            max={100}
+            onChange={(width) => patchBlock(block, { ...data, width })}
+          />
+        </>
       ) : null}
       <CheckField
         id="video-pdf-preview"

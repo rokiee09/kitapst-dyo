@@ -39,6 +39,9 @@ export interface BlockStyle {
   background?: string;
   fontFamily?: string;
   fontSize?: number;
+  headingSize?: 1 | 2 | 3;
+  lineHeight?: number;
+  listMarker?: string;
   placement?: "flow" | "free";
   x?: number;
   y?: number;
@@ -81,6 +84,7 @@ export interface Book {
   pageNumbers: boolean;
   pageNumberAlign: "left" | "center" | "right";
   pageNumberStart: number;
+  lineHeight: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -202,6 +206,10 @@ export interface VideoBlockData {
   showInPdf: boolean;
   showInHtml: boolean;
   previewAsPdf: boolean;
+  tile: boolean;
+  width: number;
+  align: "left" | "center" | "right";
+  fit: "contain" | "cover";
 }
 
 export type QrTarget = "video" | "chapter" | "url" | "text";

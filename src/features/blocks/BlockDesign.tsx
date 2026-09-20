@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { BOX_PRESETS, canFloat, defaultFreeStyle, isFree, PAGE_FONTS } from "@/features/blocks/blockStyle";
+import { BOX_PRESETS, canFloat, defaultFreeStyle, isFree, LINE_SPACINGS, LIST_MARKER_OPTIONS, HEADING_SIZE_OPTIONS, PAGE_FONTS, parseHeadingSize, effectiveHeadingSize } from "@/features/blocks/blockStyle";
 import { stylePresetService } from "@/services";
 import { useEditorStore } from "@/stores/editorStore";
 import type { BlockStyle, StylePreset } from "@/types/domain";
@@ -69,6 +69,62 @@ export function BlockDesign() {
         </select>
       </div>
       <div>
+        <Label htmlFor="line-height">Satır aralığı</Label>
+        <select
+          id="line-height"
+          className="mt-1 h-8 w-full rounded-md border border-[#1c2a44] bg-[#070b14] px-2 text-sm"
+          value={String(style.lineHeight ?? 1.15)}
+          onChange={(event) =>
+            patchStyle({
+              ...style,
+              lineHeight: Number(event.target.value),
+            })
+          }
+        >
+          {LINE_SPACINGS.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label htmlFor="list-marker">Madde işareti (isteğe bağlı)</Label>
+        <select
+          id="list-marker"
+          className="mt-1 h-8 w-full rounded-md border border-[#1c2a44] bg-[#070b14] px-2 text-sm"
+          value={
+            LIST_MARKER_OPTIONS.some((item) => item.value === (style.listMarker ?? ""))
+              ? (style.listMarker ?? "")
+              : "__custom"
+          }
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === "__custom") {
+              patchStyle({ ...style, listMarker: style.listMarker?.trim() || "★" });
+              return;
+            }
+            patchStyle({ ...style, listMarker: value || undefined });
+          }}
+        >
+          {LIST_MARKER_OPTIONS.map((item) => (
+            <option key={item.value || "default"} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+          <option value="__custom">Özel işaret</option>
+        </select>
+        <input
+          className="mt-1 h-8 w-full rounded-md border border-[#1c2a44] bg-[#070b14] px-2 text-sm"
+          placeholder="Özel işaret, örn. ★"
+          maxLength={4}
+          value={style.listMarker ?? ""}
+          onChange={(event) =>
+            patchStyle({ ...style, listMarker: event.target.value.trim() || undefined })
+          }
+        />
+      </div>
+      <div>
         <Label htmlFor="padding">İç boşluk</Label>
         <select
           id="padding"
@@ -118,6 +174,31 @@ export function BlockDesign() {
           {PAGE_FONTS.map((font) => (
             <option key={font.value} value={font.value}>
               {font.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label htmlFor="heading-size">Başlık boyutu (H1–H3, isteğe bağlı)</Label>
+        <select
+          id="heading-size"
+          className="mt-1 h-8 w-full rounded-md border border-[#1c2a44] bg-[#070b14] px-2 text-sm"
+          value={String(effectiveHeadingSize(style, block.data) ?? "")}
+          onChange={(event) => {
+            const headingSize = parseHeadingSize(event.target.value);
+            const data = { ...((block.data as Record<string, unknown> | null) ?? {}) };
+            if (headingSize) data.level = headingSize;
+            else delete data.level;
+            useEditorStore.getState().updateBlockLocal(selectedId, {
+              data,
+              style: { ...style, headingSize },
+            });
+            useEditorStore.getState().scheduleSave(selectedId);
+          }}
+        >
+          {HEADING_SIZE_OPTIONS.map((item) => (
+            <option key={item.value || "default"} value={item.value}>
+              {item.label}
             </option>
           ))}
         </select>

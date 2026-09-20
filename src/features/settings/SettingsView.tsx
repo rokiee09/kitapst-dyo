@@ -1,6 +1,6 @@
 import { BookSettingsView } from "@/features/books/BookSettingsView";
 import { toast } from "sonner";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -80,17 +80,11 @@ export function SettingsView() {
 }
 
 function ProofreadAiCard() {
-  const [endpoint, setEndpoint] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("gpt-4o-mini");
+  const initial = loadProofreadAiSettings();
+  const [endpoint, setEndpoint] = useState(initial.endpoint);
+  const [apiKey, setApiKey] = useState(initial.apiKey);
+  const [model, setModel] = useState(initial.model);
   const [testing, setTesting] = useState(false);
-
-  useEffect(() => {
-    const saved = loadProofreadAiSettings();
-    setEndpoint(saved.endpoint);
-    setApiKey(saved.apiKey);
-    setModel(saved.model);
-  }, []);
 
   function persist(next: { endpoint?: string; apiKey?: string; model?: string }) {
     const saved = {

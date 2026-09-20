@@ -19,5 +19,5 @@ Son yenilikler (Eylül 2026)
 - İsteğe bağlı H1–H3; H2 siyah.
 - Yazım denetimi: Denetle / DENETİM. Tüm kitap veya seçili sayfa.
 - İsteğe bağlı yapay zeka: Ayarlar’da adres, anahtar, model (gpt-4o-mini).
-- PDF sayfa sayısı uygulama sayfalarıyla uyumlu; QR basılır.
+- PDF ve HTML sayfa yapısı uygulama sayfalarıyla uyumlu; QR karışmaz.
 - Karanlık kip kâğıdı koyulaştırır.

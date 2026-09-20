@@ -624,12 +624,9 @@ fn build_html(
     let mut body = String::new();
     let mut page = book.page_number_start;
     let mut image_counter = 0usize;
-    let add_cover = !paged && !chapters.iter().any(|item| is_front_page(&item.chapter.title, &["kapak", "cover"]));
-    let add_toc = include_toc
-        && !paged
-        && !chapters
-            .iter()
-            .any(|item| is_front_page(&item.chapter.title, &["içindekiler", "icindekiler", "contents"]));
+    let _ = include_toc;
+    let add_cover = false;
+    let add_toc = false;
     if add_cover {
         body.push_str("<section class=\"cover sheet\">");
         body.push_str(&format!(
@@ -661,7 +658,7 @@ fn build_html(
         body.push_str("</nav>");
     }
     for chapter in chapters.iter() {
-        let slices = split_export_pages(&chapter.blocks, paged);
+        let slices = split_export_pages(&chapter.blocks, true);
         for slice in slices.iter() {
             body.push_str(&format!(
                 "<section class=\"sheet\" id=\"chapter-{}\">",
@@ -720,6 +717,7 @@ fn build_html(
     ))
 }
 
+#[allow(dead_code)]
 fn is_front_page(title: &str, names: &[&str]) -> bool {
     let folded = title
         .trim()
@@ -952,7 +950,7 @@ fn wrap_block_style(block: &ContentBlock, inner: String) -> String {
     } else {
         String::new()
     };
-    if placement == "free" {
+    if placement == "free" && block.block_type != "qr" {
         let x = style.get("x").and_then(|value| value.as_f64()).unwrap_or(6.0);
         let y = style.get("y").and_then(|value| value.as_f64()).unwrap_or(8.0);
         let width = style
@@ -966,6 +964,9 @@ fn wrap_block_style(block: &ContentBlock, inner: String) -> String {
             r#"<div class="textbox" data-block-kind="{}" style="{css}"{marker_attr}>{inner}</div>"#,
             escape_html(&block.block_type)
         );
+    }
+    if block.block_type == "qr" {
+        css.push_str("float:right;clear:right;width:180px;max-width:42%;margin:0 0 16px 16px;");
     }
     format!(
         r#"<div data-block-kind="{}" style="{css}"{marker_attr}>{inner}</div>"#,
@@ -1100,7 +1101,8 @@ fn qr_figure(
         .unwrap_or_default();
     let svg = String::from_utf8_lossy(&bytes);
     Ok(format!(
-        r#"<figure class="qr"><div class="qr-svg">{svg}</div>{cap}</figure>"#,
+        r#"<figure class="qr" data-qr="{}"><div class="qr-svg">{svg}</div>{cap}</figure>"#,
+        escape_html(payload),
     ))
 }
 
@@ -1342,17 +1344,21 @@ fn escape_xml(value: &str) -> String {
 }
 
 const HTML_CSS: &str = r#"
-body{font-family:Segoe UI,system-ui,sans-serif;max-width:820px;margin:32px auto;padding:0 24px 64px;color:#152033;line-height:1.65}
+html,body{margin:0;padding:0;background:#dbe4ef;color:#152033}
+body{font-family:Segoe UI,system-ui,sans-serif;padding:24px 12px 48px;line-height:1.5}
+.sheet{position:relative;width:760px;min-height:920px;margin:24px auto;padding:56px 64px 96px;box-sizing:border-box;background:#fff;box-shadow:0 12px 36px rgba(15,23,42,.18);overflow:hidden}
+.sheet::after{content:"";display:block;clear:both}
 .title{font-size:36px;margin:0}
 .subtitle,.author,.kicker{color:#5b6578}
 .toc{background:#f8fafc;padding:16px 24px;border-radius:12px}
-section{margin:48px 0}
-.page-num{position:absolute;bottom:18px;left:24px;right:24px;font-size:12px;letter-spacing:.08em;opacity:.7}
-img{max-width:100%;height:auto;border-radius:12px}
-figure.qr{display:flex;flex-direction:column;align-items:center;margin:16px 0;text-align:center}
-.qr-svg,figure.qr svg,figure.qr img{width:180px;height:180px;background:#fff}
+.page-num{position:absolute;bottom:28px;left:64px;right:64px;font-size:12px;letter-spacing:.08em;opacity:.7}
+img{max-width:100%;height:auto}
+[data-block-kind="qr"]{float:right;clear:right;width:180px;max-width:42%;margin:0 0 16px 16px}
+figure.qr{display:flex;flex-direction:column;align-items:center;margin:0;text-align:center;break-inside:avoid}
+.qr-svg{width:160px;height:160px;background:#fff}
+.qr-svg svg{width:160px;height:160px;display:block}
 figure.qr figcaption,.media-cap{font-size:11px;color:#6b6478;margin-top:6px;text-align:center;line-height:1.35}
-.video-block{margin:16px 0}
+.video-block{margin:16px 0;clear:both}
 .video-tile{overflow:hidden}
 table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #dbe4ef;padding:8px;text-align:left}
@@ -1362,9 +1368,14 @@ ol{list-style:decimal;padding-left:1.4em}
 h1,h2,h3,[data-block-kind="heading"] ul,[data-block-kind="heading"] ol,[data-block-kind="heading"] li{list-style:none;padding-left:0}
 .info{background:#fffbeb;border:1px solid #fde68a;padding:12px 16px;border-radius:12px}
 .warn{background:#fff7ed;border:1px solid #fdba74;padding:12px 16px;border-radius:12px}
-.page-break{break-after:page;border-top:1px dashed #cbd5e1;margin:24px 0}
+.page-break{display:none}
 pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto}
-@media print{body{margin:0;max-width:none}}
+.textbox{z-index:2}
+@media print{
+  body{background:#fff;padding:0}
+  .sheet{box-shadow:none;margin:0;page-break-after:always}
+  .sheet:last-child{page-break-after:auto}
+}
 "#;
 
 const PDF_CSS: &str = r#"
@@ -1372,7 +1383,9 @@ const PDF_CSS: &str = r#"
 html,body{margin:0;padding:0;width:760px;height:920px;background:#fff;color:#152033;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .sheet{width:760px;height:920px;max-height:920px;box-sizing:border-box;padding:56px 64px 112px;overflow:hidden;page-break-after:always;page-break-inside:avoid;break-after:page;break-inside:avoid;position:relative}
 .sheet:last-child{page-break-after:auto;break-after:auto}
-.sheet *{max-width:100%}
+.sheet::after{content:"";display:block;clear:both}
+[data-block-kind="qr"]{float:right;clear:right;width:160px;margin:0 0 12px 12px}
+.sheet img,.sheet p,.sheet h1,.sheet h2,.sheet h3,.sheet ul,.sheet ol,.sheet table{max-width:100%}
 h1,h2,h3{font-size:22px;margin:0 0 12px}
 .title{font-size:36px;margin:0}
 .subtitle,.author,.kicker{color:#5b6578}

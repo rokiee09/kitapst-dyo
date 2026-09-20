@@ -65,17 +65,27 @@ writeFileSync(
   path.join(outDir, "OKU.txt"),
   `Kitap Stüdyosu — başka bilgisayarda kurulum
 ============================================
-1) Bu klasörü USB veya indirme ile hedef Windows 10/11 PC'ye kopyala.
-2) Kurulum.exe dosyasını çift tıkla (yönetici gerekmez).
-3) Başlat menüsünden "Kitap Stüdyosu"nu aç.
+1) Bu klasörü USB veya indirme ile hedef Windows 10/11 PC'ye kopyalayınız.
+2) Kurulum.exe dosyasını çift tıklayınız (yönetici gerekmez).
+3) Başlat menüsünden "Kitap Stüdyosu"nu açınız.
 
-Kurulum istemezsen: "Kitap Stüdyosu.exe" yeterli olabilir.
+Kurulum istemezseniz: "Kitap Stüdyosu.exe" yeterli olabilir.
 WebView2 yoksa Kurulum.exe onu da yükler.
 
 Kitapların kaydı bu makinede:
   Belgeler\\KitapStudioProjects
 
 Ayrıntı: proje kökündeki KURULUM.md
+
+Son yenilikler (Eylül 2026)
+---------------------------
+- Kapak, önsöz, giriş, içindekiler sayfası eklenebilir.
+- İsteğe bağlı madde işareti ve özel karakter; başlıklarda nokta olmaz.
+- İsteğe bağlı H1–H3; H2 siyah.
+- Yazım denetimi: Denetle / DENETİM. Tüm kitap veya seçili sayfa.
+- İsteğe bağlı yapay zeka: Ayarlar’da adres, anahtar, model (gpt-4o-mini).
+- PDF ve HTML sayfa yapısı uygulama sayfalarıyla uyumlu; QR karışmaz.
+- Karanlık kip kâğıdı koyulaştırır.
 `,
   "utf8",
 );

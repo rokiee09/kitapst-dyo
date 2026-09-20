@@ -113,14 +113,8 @@ export function BlockWrapper({ block, children, editable }: BlockWrapperProps) {
     function onMove(moveEvent: PointerEvent) {
       const rect = surface.getBoundingClientRect();
       const dx = ((moveEvent.clientX - startX) / Math.max(rect.width, 1)) * 100;
-      let x = origX;
-      let width = origW;
-      if (edge === "w") {
-        width = origW - dx;
-        x = origX + dx;
-      } else {
-        width = origW + dx;
-      }
+      const width = edge === "w" ? origW - dx : origW + dx;
+      const x = edge === "w" ? origX + dx : origX;
       const boxed = clampBox(snapPercent(x), origY, snapPercent(width));
       const styleNow = currentStyle();
       useEditorStore.getState().updateBlockLocal(block.id, {

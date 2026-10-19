@@ -82,6 +82,10 @@ export const videoBlockSchema = z.object({
   showInPdf: z.boolean(),
   showInHtml: z.boolean(),
   previewAsPdf: z.boolean(),
+  tile: z.boolean().optional(),
+  width: z.number().min(8).max(100).optional(),
+  align: z.enum(["left", "center", "right"]).optional(),
+  fit: z.enum(["contain", "cover"]).optional(),
 });
 
 export const qrBlockSchema = z.object({

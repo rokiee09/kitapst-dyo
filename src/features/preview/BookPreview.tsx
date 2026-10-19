@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BlockView } from "@/features/blocks/BlockView";
 import { BlockWrapper } from "@/features/blocks/BlockWrapper";
 import { DeviceFrame } from "@/features/preview/DeviceFrame";
+import { BookSheet } from "@/features/blocks/BookSheet";
 import { isFree } from "@/features/blocks/blockStyle";
 import { blockService } from "@/services";
 import { useEditorStore } from "@/stores/editorStore";
@@ -144,28 +145,16 @@ export function BookPreview({
         {current?.label ? ` — ${current.label}` : ""}
       </div>
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
-      {sheets.map((sheet, index) => (
-        <article
-          key={sheet.key}
-          ref={(node) => {
-            sheetRefs.current[index] = node;
-          }}
-          id={sheet.kind === "chapter" && sheet.chapter ? `preview-${sheet.chapter.id}` : sheet.key}
-          className={cn(
-            "book-page relative w-full shadow-[0_18px_50px_rgba(0,0,0,0.35)]",
-            dark && "book-page-dark",
-            previewMode === "phone" ? "rounded-none" : "rounded-sm",
-            paperClass,
-          )}
-          style={paperStyle}
-        >
-          {sheet.kind === "cover" ? (
+      {sheets.map((sheet, index) => {
+        const body =
+          sheet.kind === "cover" ? (
             <CoverPage dark={dark} />
           ) : sheet.kind === "toc" ? (
             <TocPage chapters={ordered} dark={dark} />
           ) : (
             <ChapterPage chapter={sheet.chapter!} blocks={sheet.blocks} first={sheet.key.endsWith("-0")} />
-          )}
+          );
+        const footer = (
           <div
             className={cn(
               "pointer-events-none absolute inset-x-8 bottom-7 text-xs tracking-widest opacity-70",
@@ -174,8 +163,46 @@ export function BookPreview({
           >
             {sheet.number}
           </div>
-        </article>
-      ))}
+        );
+        const sheetId = sheet.kind === "chapter" && sheet.chapter ? `preview-${sheet.chapter.id}` : sheet.key;
+        if (previewMode === "book") {
+          return (
+            <BookSheet
+              key={sheet.key}
+              id={sheetId}
+              dark={dark}
+              clip
+              showGuide
+              style={paperStyle}
+              footer={footer}
+              sheetRef={(node) => {
+                sheetRefs.current[index] = node;
+              }}
+            >
+              {body}
+            </BookSheet>
+          );
+        }
+        return (
+          <article
+            key={sheet.key}
+            ref={(node) => {
+              sheetRefs.current[index] = node;
+            }}
+            id={sheetId}
+            className={cn(
+              "book-page relative w-full shadow-[0_18px_50px_rgba(0,0,0,0.35)]",
+              dark && "book-page-dark",
+              previewMode === "phone" ? "rounded-none" : "rounded-sm",
+              paperClass,
+            )}
+            style={paperStyle}
+          >
+            {body}
+            {footer}
+          </article>
+        );
+      })}
     </div>
   );
 

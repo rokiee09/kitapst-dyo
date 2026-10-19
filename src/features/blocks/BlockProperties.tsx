@@ -255,7 +255,7 @@ function VideoFields({ block }: { block: ContentBlock }) {
         id="video-width"
         label="Video genişliği (%)"
         value={data.width}
-        min={16}
+        min={8}
         max={100}
         onChange={(width) => patchBlock(block, { ...data, width })}
       />

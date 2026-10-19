@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { isTauriRuntime } from "@/services/tauri/invoke";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { assetService } from "@/services/assets";
@@ -102,7 +103,7 @@ function MediaCard({ asset, onRemove }: { asset: Asset; onRemove: () => void }) 
         }
         if (asset.type === "video") {
           const abs = await assetService.resolvePath(asset.relativePath);
-          if (!cancelled) setThumb(convertFileSrc(abs));
+          if (!cancelled) setThumb(isTauriRuntime() ? convertFileSrc(abs) : abs);
         }
       } catch {
         if (!cancelled) setThumb(null);

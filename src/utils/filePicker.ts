@@ -1,6 +1,9 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { isTauriRuntime } from "@/services/tauri/invoke";
+import { registerPreviewFile } from "@/services/browser/previewFiles";
 
 export async function pickLocalFile(kind: "image" | "video" | "file" | "zip" | "word"): Promise<string | null> {
+  if (!isTauriRuntime()) return pickBrowserFile(kind);
+  const { open } = await import("@tauri-apps/plugin-dialog");
   const selected = await open({
     multiple: false,
     directory: false,
@@ -26,6 +29,29 @@ export async function pickLocalFile(kind: "image" | "video" | "file" | "zip" | "
               : [{ name: "Dosyalar", extensions: ["pdf", "zip", "epub", "txt", "md", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "csv", "rtf"] }],
   });
   return asSinglePath(selected);
+}
+
+function pickBrowserFile(kind: "image" | "video" | "file" | "zip" | "word"): Promise<string | null> {
+  const accept =
+    kind === "image"
+      ? "image/jpeg,image/png,image/webp,image/svg+xml,.jpg,.jpeg,.png,.webp,.svg"
+      : kind === "video"
+        ? "video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.mkv"
+        : kind === "zip"
+          ? ".zip,application/zip"
+          : kind === "word"
+            ? ".docx,.txt,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+            : ".pdf,.zip,.epub,.txt,.md,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.rtf";
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.onchange = () => {
+      const file = input.files?.[0];
+      resolve(file ? registerPreviewFile(file) : null);
+    };
+    input.click();
+  });
 }
 
 function asSinglePath(value: unknown): string | null {

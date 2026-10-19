@@ -10,6 +10,7 @@ import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { BlockView } from "@/features/blocks/BlockView";
 import { BlockWrapper } from "@/features/blocks/BlockWrapper";
 import { DeviceFrame } from "@/features/preview/DeviceFrame";
+import { BookSheet } from "@/features/blocks/BookSheet";
 import { PageStructurePicker } from "@/features/templates/PageStructurePicker";
 import { isFree } from "@/features/blocks/blockStyle";
 import { useEditorStore } from "@/stores/editorStore";
@@ -71,21 +72,8 @@ export function BlockCanvas({
     void useEditorStore.getState().reorder(next);
   }
 
-  const page = (
-    <article
-      className={cn(
-        "book-page relative w-full shadow-[0_18px_50px_rgba(0,0,0,0.35)]",
-        dark ? "book-page-dark" : "bg-white",
-        previewing && previewMode === "phone"
-          ? "min-h-[640px] rounded-none px-5 pb-16 pt-8"
-          : previewing && previewMode === "tablet"
-            ? "min-h-[720px] rounded-md px-10 pb-24 pt-10"
-            : previewing
-              ? "min-h-[calc(100vh-220px)] max-w-[760px] rounded-sm px-16 pb-28 pt-14"
-              : "min-h-[calc(100vh-280px)] max-w-[820px] rounded-xl px-12 pb-40 pt-12",
-      )}
-      style={paperStyle}
-    >
+  const inner = (
+    <>
       {previewing ? (
         <header className={cn("mb-8 border-b pb-4", dark ? "border-white/10" : "border-[#e8e0d4]")}>
           <div className="text-[11px] uppercase tracking-[0.18em] text-[#8aa0b8]">
@@ -113,22 +101,42 @@ export function BlockCanvas({
             ))}
           </div>
         </SortableContext>
-      {freeBlocks.map((block) => (
-        <BlockWrapper key={block.id} block={block} editable={editable}>
-          <BlockView block={block} editable={editable} />
-        </BlockWrapper>
-      ))}
+        {freeBlocks.map((block) => (
+          <BlockWrapper key={block.id} block={block} editable={editable}>
+            <BlockView block={block} editable={editable} />
+          </BlockWrapper>
+        ))}
       </DndContext>
-      {book?.pageNumbers ? (
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-x-10 bottom-8 text-xs tracking-widest opacity-70",
-            pageNumberAlignClass(book.pageNumberAlign),
-          )}
-        >
-          {chapterPageNumber(chapters, selectedChapterId, book.pageNumberStart ?? 1)}
-        </div>
-      ) : null}
+    </>
+  );
+
+  const pageFooter = book?.pageNumbers ? (
+    <div
+      className={cn(
+        "pointer-events-none absolute inset-x-10 bottom-8 text-xs tracking-widest opacity-70",
+        pageNumberAlignClass(book.pageNumberAlign),
+      )}
+    >
+      {chapterPageNumber(chapters, selectedChapterId, book.pageNumberStart ?? 1)}
+    </div>
+  ) : null;
+
+  const useSheet = !previewing || previewMode === "book";
+  const page = useSheet ? (
+    <BookSheet dark={dark} clip={previewing} showGuide={!previewing} style={paperStyle} footer={pageFooter}>
+      {inner}
+    </BookSheet>
+  ) : (
+    <article
+      className={cn(
+        "book-page relative w-full shadow-[0_18px_50px_rgba(0,0,0,0.35)]",
+        dark ? "book-page-dark" : "bg-white",
+        previewMode === "phone" ? "min-h-[640px] rounded-none px-5 pb-16 pt-8" : "min-h-[720px] rounded-md px-10 pb-24 pt-10",
+      )}
+      style={paperStyle}
+    >
+      {inner}
+      {pageFooter}
     </article>
   );
 

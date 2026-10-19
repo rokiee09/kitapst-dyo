@@ -9,7 +9,12 @@ function str(value: unknown, fallback = ""): string {
 }
 
 function num(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 function bool(value: unknown, fallback: boolean): boolean {
@@ -64,7 +69,7 @@ export function readVideoData(value: unknown): VideoBlockData {
     showInHtml: bool(data.showInHtml, true),
     previewAsPdf: bool(data.previewAsPdf, false),
     tile: bool(data.tile, false),
-    width: Math.min(100, Math.max(16, num(data.width, 100))),
+    width: Math.min(100, Math.max(8, num(data.width, 100))),
     align: align === "left" || align === "right" || align === "center" ? align : "center",
     fit: data.fit === "contain" ? "contain" : "cover",
   };

@@ -75,6 +75,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
     if (!editable) return;
     event.preventDefault();
     event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
     const page = frameRef.current?.closest(".book-page");
     const pageWidth = page?.clientWidth ?? 720;
     const startX = event.clientX;
@@ -85,7 +86,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
     function onMove(moveEvent: PointerEvent) {
       const dx = moveEvent.clientX - startX;
       const signed = edge === "w" ? -dx : dx;
-      const next = Math.min(100, Math.max(16, Math.round(startWidth + (signed / pageWidth) * 100 * grow)));
+      const next = Math.min(100, Math.max(8, Math.round(startWidth + (signed / pageWidth) * 100 * grow)));
       useEditorStore.getState().updateBlockLocal(block.id, { data: { ...data, width: next } });
     }
 
@@ -145,30 +146,32 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
       <div
         ref={frameRef}
         className={cn(
-          "relative overflow-hidden rounded-lg bg-slate-900",
+          "relative min-w-0 overflow-hidden rounded-lg bg-slate-900",
           alignClass,
           floatClass,
           !data.tile && "border border-[#dbe4ef]",
         )}
-        style={{ width: `${data.width}%` }}
+        style={{ width: `${data.width}%`, maxWidth: `${data.width}%` }}
       >
-        <div className="min-w-0">
-          {data.previewAsPdf ? (
-            thumbSrc ? (
-              <img src={thumbSrc} alt="" className="aspect-video h-auto w-full object-cover" />
+        <div className="relative w-full min-w-0 overflow-hidden pt-[56.25%]">
+          <div className={cn("absolute inset-0 min-h-0 min-w-0 overflow-hidden", resizing && "pointer-events-none")}>
+            {data.previewAsPdf ? (
+              thumbSrc ? (
+                <img src={thumbSrc} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-slate-300">Küçük resim yok</div>
+              )
             ) : (
-              <div className="flex aspect-video items-center justify-center text-xs text-slate-300">Küçük resim yok</div>
-            )
-          ) : (
-            <VideoPlayer
-              localSrc={localSrc}
-              youtubeId={youtubeId}
-              vimeoId={vimeoId}
-              url={data.url}
-              urlOk={urlOk}
-              fit={data.fit}
-            />
-          )}
+              <VideoPlayer
+                localSrc={localSrc}
+                youtubeId={youtubeId}
+                vimeoId={vimeoId}
+                url={data.url}
+                urlOk={urlOk}
+                fit={data.fit}
+              />
+            )}
+          </div>
         </div>
         {!data.tile && (data.title || data.description || data.duration) ? (
           <div className="border-t border-white/10 bg-[#f8fafc] px-3 py-2 text-[#152033]">
@@ -281,7 +284,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
               Boyut
               <input
                 type="range"
-                min={16}
+                min={8}
                 max={100}
                 value={data.width}
                 onChange={(event) => patch({ width: Number(event.target.value) })}
@@ -353,13 +356,13 @@ function VideoPlayer({
   urlOk: boolean;
   fit: "contain" | "cover";
 }) {
-  const box = "aspect-video w-full bg-black";
+  const fill = "h-full w-full min-h-0 min-w-0 max-w-full bg-black";
   if (localSrc) {
     return (
       <video
         src={localSrc}
         controls
-        className={cn(box, fit === "cover" ? "object-cover" : "object-contain")}
+        className={cn(fill, fit === "cover" ? "object-cover" : "object-contain")}
       />
     );
   }
@@ -368,7 +371,7 @@ function VideoPlayer({
       <iframe
         title="YouTube videosu"
         src={youtubeEmbedUrl(youtubeId)}
-        className="aspect-video w-full border-0"
+        className="h-full w-full min-h-0 min-w-0 max-w-full border-0"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
       />
@@ -379,7 +382,7 @@ function VideoPlayer({
       <iframe
         title="Vimeo videosu"
         src={vimeoEmbedUrl(vimeoId)}
-        className="aspect-video w-full border-0"
+        className="h-full w-full min-h-0 min-w-0 max-w-full border-0"
         allow="autoplay; fullscreen; picture-in-picture"
         allowFullScreen
       />
@@ -387,20 +390,20 @@ function VideoPlayer({
   }
   if (urlOk) {
     return (
-      <div className="flex aspect-video items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] p-4 text-sm text-[#5b6578]">
+      <div className="flex h-full items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] p-4 text-sm text-[#5b6578]">
         Bağlantı kaydedildi. YouTube/Vimeo değilse editörde oynatıcı yok.
       </div>
     );
   }
   if (url.trim()) {
     return (
-      <div className="flex aspect-video items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] text-sm text-[#5b6578]">
+      <div className="flex h-full items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] text-sm text-[#5b6578]">
         Geçerli bir http/https adresi girin
       </div>
     );
   }
   return (
-    <div className="flex aspect-video items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] text-sm text-[#5b6578]">
+    <div className="flex h-full items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] text-sm text-[#5b6578]">
       Yerel dosya veya bağlantı ekleyin
     </div>
   );

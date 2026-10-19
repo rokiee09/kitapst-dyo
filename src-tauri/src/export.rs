@@ -1003,7 +1003,7 @@ fn render_video_html(block: &ContentBlock, index: usize) -> Result<String, AppEr
         .get("width")
         .and_then(|value| value.as_f64())
         .unwrap_or(100.0)
-        .clamp(16.0, 100.0);
+        .clamp(8.0, 100.0);
     let align = block
         .data
         .get("align")

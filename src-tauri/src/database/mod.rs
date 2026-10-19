@@ -264,6 +264,10 @@ pub fn compute_chapter_number(
     parent_id: Option<&str>,
     order: i64,
 ) -> Result<Option<String>, AppError> {
+    // Geçici numara; asıl sıralama `renumber_book_chapters` ile yapılır.
+    if is_front_matter_title_query(conn, book_id, parent_id, order)? {
+        return Ok(None);
+    }
     if let Some(parent) = parent_id {
         let parent_number: Option<String> = conn
             .query_row(
@@ -273,36 +277,157 @@ pub fn compute_chapter_number(
             )
             .optional()?
             .flatten();
-        let index = sibling_index(conn, book_id, Some(parent), order)? + 1;
+        let index = numbered_sibling_index(conn, book_id, Some(parent), order)? + 1;
         return Ok(Some(match parent_number {
             Some(prefix) if !prefix.is_empty() => format!("{prefix}.{index}"),
             _ => index.to_string(),
         }));
     }
 
-    let index = sibling_index(conn, book_id, None, order)? + 1;
+    let index = numbered_sibling_index(conn, book_id, None, order)? + 1;
     Ok(Some(index.to_string()))
 }
 
-fn sibling_index(
+/// Bölüm silme / taşıma / yeniden sıralama sonrası 1,2,3… numaralarını yeniden yazar.
+pub fn renumber_book_chapters(conn: &Connection, book_id: &str) -> Result<(), AppError> {
+    renumber_sibling_group(conn, book_id, None, None)
+}
+
+fn renumber_sibling_group(
+    conn: &Connection,
+    book_id: &str,
+    parent_id: Option<&str>,
+    parent_number: Option<&str>,
+) -> Result<(), AppError> {
+    let siblings = list_sibling_rows(conn, book_id, parent_id)?;
+    let ts = now();
+    let mut numbered_index = 0i64;
+    for (index, (id, title)) in siblings.iter().enumerate() {
+        conn.execute(
+            "UPDATE chapter SET sort_order = ?1, updated_at = ?2 WHERE id = ?3",
+            params![index as i64, ts, id],
+        )?;
+        let number = if is_front_matter_title(title) {
+            None
+        } else {
+            numbered_index += 1;
+            Some(match parent_number {
+                Some(prefix) if !prefix.is_empty() => format!("{prefix}.{numbered_index}"),
+                _ => numbered_index.to_string(),
+            })
+        };
+        conn.execute(
+            "UPDATE chapter SET number = ?1, updated_at = ?2 WHERE id = ?3",
+            params![number, ts, id],
+        )?;
+        renumber_sibling_group(conn, book_id, Some(id), number.as_deref())?;
+    }
+    Ok(())
+}
+
+fn list_sibling_rows(
+    conn: &Connection,
+    book_id: &str,
+    parent_id: Option<&str>,
+) -> Result<Vec<(String, String)>, AppError> {
+    let mut rows = Vec::new();
+    if let Some(parent) = parent_id {
+        let mut stmt = conn.prepare(
+            "SELECT id, title FROM chapter WHERE book_id = ?1 AND parent_id = ?2 ORDER BY sort_order ASC, created_at ASC",
+        )?;
+        for row in stmt.query_map(params![book_id, parent], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })? {
+            rows.push(row?);
+        }
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT id, title FROM chapter WHERE book_id = ?1 AND parent_id IS NULL ORDER BY sort_order ASC, created_at ASC",
+        )?;
+        for row in stmt.query_map(params![book_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })? {
+            rows.push(row?);
+        }
+    }
+    Ok(rows)
+}
+
+pub fn is_front_matter_title(title: &str) -> bool {
+    matches!(title, "Kapak" | "Önsöz" | "Giriş" | "İçindekiler")
+}
+
+fn is_front_matter_title_query(
+    conn: &Connection,
+    book_id: &str,
+    parent_id: Option<&str>,
+    order: i64,
+) -> Result<bool, AppError> {
+    let title: Option<String> = match parent_id {
+        Some(parent) => conn
+            .query_row(
+                "SELECT title FROM chapter WHERE book_id = ?1 AND parent_id = ?2 AND sort_order = ?3 LIMIT 1",
+                params![book_id, parent, order],
+                |row| row.get(0),
+            )
+            .optional()?,
+        None => conn
+            .query_row(
+                "SELECT title FROM chapter WHERE book_id = ?1 AND parent_id IS NULL AND sort_order = ?2 LIMIT 1",
+                params![book_id, order],
+                |row| row.get(0),
+            )
+            .optional()?,
+    };
+    Ok(title.as_deref().is_some_and(is_front_matter_title))
+}
+
+fn numbered_sibling_index(
     conn: &Connection,
     book_id: &str,
     parent_id: Option<&str>,
     order: i64,
 ) -> Result<i64, AppError> {
-    let count: i64 = match parent_id {
-        Some(parent) => conn.query_row(
-            "SELECT COUNT(*) FROM chapter WHERE book_id = ?1 AND parent_id = ?2 AND sort_order <= ?3",
-            params![book_id, parent, order],
-            |row| row.get(0),
-        )?,
-        None => conn.query_row(
-            "SELECT COUNT(*) FROM chapter WHERE book_id = ?1 AND parent_id IS NULL AND sort_order <= ?2",
-            params![book_id, order],
-            |row| row.get(0),
-        )?,
-    };
-    Ok(count)
+    let mut counted = 0i64;
+    let mut index = 0i64;
+    if let Some(parent) = parent_id {
+        let mut stmt = conn.prepare(
+            "SELECT title, sort_order FROM chapter WHERE book_id = ?1 AND parent_id = ?2 ORDER BY sort_order ASC, created_at ASC",
+        )?;
+        for row in stmt.query_map(params![book_id, parent], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })? {
+            let (title, sort_order) = row?;
+            if is_front_matter_title(&title) {
+                continue;
+            }
+            if sort_order < order {
+                counted += 1;
+            } else if sort_order == order {
+                index = counted;
+                break;
+            }
+        }
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT title, sort_order FROM chapter WHERE book_id = ?1 AND parent_id IS NULL ORDER BY sort_order ASC, created_at ASC",
+        )?;
+        for row in stmt.query_map(params![book_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })? {
+            let (title, sort_order) = row?;
+            if is_front_matter_title(&title) {
+                continue;
+            }
+            if sort_order < order {
+                counted += 1;
+            } else if sort_order == order {
+                index = counted;
+                break;
+            }
+        }
+    }
+    Ok(index)
 }
 
 #[allow(dead_code)]

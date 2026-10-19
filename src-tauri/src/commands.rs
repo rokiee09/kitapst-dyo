@@ -154,11 +154,12 @@ pub fn create_chapter(
     {
         // Her yeni üst bölümde Önsöz / Giriş / İçindekiler otomatik oluşur.
         crate::frontmatter::ensure_chapter_front_pages(&conn, &payload.book_id, &id)?;
-        crate::frontmatter::refresh_book_toc(&conn, &payload.book_id)?;
-    } else if payload.parent_id.is_none() {
-        crate::frontmatter::refresh_book_toc(&conn, &payload.book_id)?;
-    } else if let Some(parent) = payload.parent_id.as_deref() {
-        crate::frontmatter::refresh_chapter_toc(&conn, &payload.book_id, parent)?;
+    }
+    database::renumber_book_chapters(&conn, &payload.book_id)?;
+    if let Some(parent) = payload.parent_id.as_deref() {
+        let _ = crate::frontmatter::refresh_chapter_toc(&conn, &payload.book_id, parent);
+    } else {
+        let _ = crate::frontmatter::refresh_book_toc(&conn, &payload.book_id);
     }
     database::get_chapter(&conn, &id)
 }
@@ -208,6 +209,8 @@ pub fn delete_chapter(state: tauri::State<AppState>, id: String) -> Result<(), A
     let parent_id = chapter.parent_id.clone();
     let book_id = chapter.book_id.clone();
     conn.execute("DELETE FROM chapter WHERE id = ?1", [&id])?;
+    // 1-2-3 iken 2 silinince kalanlar 1-2 olsun.
+    database::renumber_book_chapters(&conn, &book_id)?;
     if let Some(parent) = parent_id.as_deref() {
         let _ = crate::frontmatter::refresh_chapter_toc(&conn, &book_id, parent);
     } else {
@@ -262,6 +265,7 @@ pub fn duplicate_chapter(state: tauri::State<AppState>, id: String) -> Result<Ch
             ],
         )?;
     }
+    database::renumber_book_chapters(&conn, &source.book_id)?;
     database::get_chapter(&conn, &new_chapter_id)
 }
 
@@ -301,6 +305,12 @@ pub fn move_chapter(
             params![current_order, now(), other_id],
         )?;
     }
+    database::renumber_book_chapters(&conn, &chapter.book_id)?;
+    if let Some(parent) = chapter.parent_id.as_deref() {
+        let _ = crate::frontmatter::refresh_chapter_toc(&conn, &chapter.book_id, parent);
+    } else {
+        let _ = crate::frontmatter::refresh_book_toc(&conn, &chapter.book_id);
+    }
     database::list_chapters(&conn, &chapter.book_id)
 }
 
@@ -330,6 +340,12 @@ pub fn reorder_chapters(
             "UPDATE chapter SET sort_order = ?1, updated_at = ?2 WHERE id = ?3",
             params![index as i64, ts, id],
         )?;
+    }
+    database::renumber_book_chapters(&conn, &book.id)?;
+    if let Some(parent) = payload.parent_id.as_deref() {
+        let _ = crate::frontmatter::refresh_chapter_toc(&conn, &book.id, parent);
+    } else {
+        let _ = crate::frontmatter::refresh_book_toc(&conn, &book.id);
     }
     database::list_chapters(&conn, &book.id)
 }

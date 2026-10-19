@@ -255,11 +255,10 @@ function createChapter(raw: Record<string, unknown>): Chapter {
   ) {
     ensureChapterFrontPages(book, chapter.id);
     refreshBookToc(book);
-  } else if (!parentId) {
-    refreshBookToc(book);
-  } else {
-    refreshChapterToc(book, parentId);
   }
+  renumberBookChapters(book);
+  if (parentId) refreshChapterToc(book, parentId);
+  else refreshBookToc(book);
   book.settings.lastOpenedChapterId = chapter.id;
   persist();
   return chapter;
@@ -277,14 +276,18 @@ function renameChapter(id: string, title: string): Chapter {
 
 function deleteChapter(id: string) {
   const book = current();
-  requireChapter(id);
+  const target = requireChapter(id);
   if (book.chapters.length <= 1) throw new Error("Kitapta en az bir bölüm bulunmalıdır.");
+  const parentId = target.parentId;
   const drop = new Set(descendantIds(book, id));
   book.chapters = book.chapters.filter((chapter) => !drop.has(chapter.id));
   book.blocks = book.blocks.filter((block) => !drop.has(block.chapterId));
   if (book.settings.lastOpenedChapterId && drop.has(book.settings.lastOpenedChapterId)) {
     book.settings.lastOpenedChapterId = book.chapters[0]?.id ?? null;
   }
+  renumberBookChapters(book);
+  if (parentId) refreshChapterToc(book, parentId);
+  else refreshBookToc(book);
   persist();
 }
 
@@ -308,8 +311,9 @@ function duplicateChapter(id: string): Chapter {
   for (const block of blocksOf(book, source.id)) {
     book.blocks.push({ ...structuredClone(block), id: crypto.randomUUID(), chapterId: copy.id, createdAt: ts, updatedAt: ts });
   }
+  renumberBookChapters(book);
   persist();
-  return copy;
+  return requireChapter(copy.id);
 }
 
 function moveChapter(id: string, direction: string): Chapter[] {
@@ -330,6 +334,9 @@ function moveChapter(id: string, direction: string): Chapter[] {
     chapter.updatedAt = ts;
     other.updatedAt = ts;
   }
+  renumberBookChapters(book);
+  if (chapter.parentId) refreshChapterToc(book, chapter.parentId);
+  else refreshBookToc(book);
   persist();
   return [...book.chapters].sort(compareChapters);
 }
@@ -350,6 +357,9 @@ function reorderChapters(raw: Record<string, unknown>): Chapter[] {
     chapter.order = index;
     chapter.updatedAt = ts;
   });
+  renumberBookChapters(book);
+  if (parentId) refreshChapterToc(book, parentId);
+  else refreshBookToc(book);
   persist();
   return [...book.chapters].sort(compareChapters);
 }
@@ -775,11 +785,40 @@ function descendantIds(book: StoredBook, id: string): string[] {
 }
 
 function chapterNumber(book: StoredBook, parentId: string | null, order: number): string {
-  const siblings = book.chapters.filter((chapter) => chapter.parentId === parentId && chapter.order <= order);
-  const index = siblings.length + 1;
-  if (!parentId) return String(index);
+  const siblings = book.chapters
+    .filter((chapter) => chapter.parentId === parentId && !isFrontMatterTitle(chapter.title))
+    .sort((a, b) => a.order - b.order);
+  const index = siblings.filter((chapter) => chapter.order <= order).length;
+  if (!parentId) return String(Math.max(1, index));
   const parent = book.chapters.find((chapter) => chapter.id === parentId);
-  return parent?.number ? `${parent.number}.${index}` : String(index);
+  return parent?.number ? `${parent.number}.${Math.max(1, index)}` : String(Math.max(1, index));
+}
+
+function isFrontMatterTitle(title: string): boolean {
+  return title === "Kapak" || title === "Önsöz" || title === "Giriş" || title === "İçindekiler";
+}
+
+function renumberBookChapters(book: StoredBook) {
+  renumberSiblingGroup(book, null, null);
+}
+
+function renumberSiblingGroup(book: StoredBook, parentId: string | null, parentNumber: string | null) {
+  const siblings = book.chapters
+    .filter((chapter) => chapter.parentId === parentId)
+    .sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt));
+  let numbered = 0;
+  const ts = now();
+  siblings.forEach((chapter, index) => {
+    chapter.order = index;
+    chapter.updatedAt = ts;
+    if (isFrontMatterTitle(chapter.title)) {
+      chapter.number = null;
+    } else {
+      numbered += 1;
+      chapter.number = parentNumber ? `${parentNumber}.${numbered}` : String(numbered);
+    }
+    renumberSiblingGroup(book, chapter.id, chapter.number);
+  });
 }
 
 function compareChapters(a: Chapter, b: Chapter): number {

@@ -1,0 +1,39 @@
+name: Windows kurulum paketi
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Bağımlılıklar
+        run: npm ci
+
+      - name: NSIS kurulum paketini üret
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Uygulama klasörüne kopyala
+        run: node scripts/copy-exe.mjs
+
+      - name: Paketi yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kitap-Studyosu-Kurulum
+          path: |
+            Uygulama/Kurulum.exe
+            Uygulama/Kitap Stüdyosu.exe
+            Uygulama/OKU.txt

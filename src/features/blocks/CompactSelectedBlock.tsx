@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { readImageData } from "@/features/blocks/blockData";
+import { readImageData, readVideoData } from "@/features/blocks/blockData";
 import { assetService } from "@/services/assets";
 import { stylePresetService } from "@/services";
 import { pickLocalFile } from "@/utils/filePicker";
@@ -22,6 +22,7 @@ export function CompactSelectedBlock() {
   }
 
   if (block.type === "image") return <ImageCompact block={block} />;
+  if (block.type === "video") return <VideoCompact block={block} />;
   return <GenericCompact block={block} />;
 }
 
@@ -133,6 +134,63 @@ function ImageCompact({ block }: { block: ContentBlock }) {
         className="w-full"
         onClick={() => void saveStylePreset(block)}
       >
+        Stil Şablonu Olarak Kaydet
+      </Button>
+    </div>
+  );
+}
+
+function VideoCompact({ block }: { block: ContentBlock }) {
+  const data = readVideoData(block.data);
+
+  function patch(next: Record<string, unknown>) {
+    useEditorStore.getState().updateBlockLocal(block.id, { data: { ...data, ...next } });
+    useEditorStore.getState().scheduleSave(block.id);
+  }
+
+  return (
+    <div className="space-y-3 p-3">
+      <div className="text-xs text-[#8aa0b8]">Video boyutu</div>
+      <div>
+        <Label>Genişlik (%{data.width})</Label>
+        <input
+          type="range"
+          min={16}
+          max={100}
+          value={data.width}
+          onChange={(event) => patch({ width: Number(event.target.value) })}
+          className="mt-1 w-full accent-blue-600"
+        />
+        <div className="mt-1 flex justify-between text-[10px] text-[#8aa0bd]">
+          <span>Küçük</span>
+          <span>Sayfa genişliği</span>
+        </div>
+      </div>
+      <div>
+        <Label>Hizalama</Label>
+        <div className="mt-1 flex gap-1">
+          {(
+            [
+              ["left", AlignLeft],
+              ["center", AlignCenter],
+              ["right", AlignRight],
+            ] as const
+          ).map(([value, Icon]) => (
+            <button
+              key={value}
+              type="button"
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded border border-[#1c314c] text-[#9fb3c9]",
+                data.align === value && "border-blue-500 bg-blue-600/20 text-white",
+              )}
+              onClick={() => patch({ align: value })}
+            >
+              <Icon size={14} />
+            </button>
+          ))}
+        </div>
+      </div>
+      <Button size="sm" variant="secondary" className="w-full" onClick={() => void saveStylePreset(block)}>
         Stil Şablonu Olarak Kaydet
       </Button>
     </div>

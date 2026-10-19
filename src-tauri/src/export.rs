@@ -1002,28 +1002,30 @@ fn render_video_html(block: &ContentBlock, index: usize) -> Result<String, AppEr
         .data
         .get("width")
         .and_then(|value| value.as_f64())
-        .unwrap_or(100.0);
+        .unwrap_or(100.0)
+        .clamp(16.0, 100.0);
     let align = block
         .data
         .get("align")
         .and_then(|value| value.as_str())
         .unwrap_or("center");
-    let tile_style = if tiled {
-        format!(
-            "width:{width}%;margin:{};",
-            match align {
-                "left" => "0 auto 12px 0",
-                "right" => "0 0 12px auto",
-                _ => "0 auto 12px",
-            }
-        )
-    } else {
-        String::new()
+    let margin = match align {
+        "left" => "0 auto 12px 0",
+        "right" => "0 0 12px auto",
+        _ => "0 auto 12px",
     };
+    let style = format!(
+        "width:{width}%;max-width:100%;margin:{margin};{}",
+        if tiled {
+            "overflow:hidden;"
+        } else {
+            ""
+        }
+    );
     let mut html = format!(
         r#"<div class="video-block{}" style="{}">"#,
         if tiled { " video-tile" } else { "" },
-        tile_style
+        style
     );
     html.push_str(&format!(r#"<p><strong>{}</strong></p>"#, escape_html(title)));
     if !url.is_empty() {

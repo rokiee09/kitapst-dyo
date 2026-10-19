@@ -251,35 +251,41 @@ function VideoFields({ block }: { block: ContentBlock }) {
       {urlInvalid || !data.url.trim() ? (
         <p className="text-[11px] text-amber-400">Video QR’si için geçerli bir http/https adresi gerekli.</p>
       ) : null}
+      <NumberField
+        id="video-width"
+        label="Video genişliği (%)"
+        value={data.width}
+        min={16}
+        max={100}
+        onChange={(width) => patchBlock(block, { ...data, width })}
+      />
+      <SelectField
+        id="video-align"
+        label="Hizalama"
+        value={data.align}
+        options={[
+          { value: "left", label: "Sol" },
+          { value: "center", label: "Orta" },
+          { value: "right", label: "Sağ" },
+        ]}
+        onChange={(align) => patchBlock(block, { ...data, align })}
+      />
+      <SelectField
+        id="video-fit"
+        label="Sığdırma"
+        value={data.fit}
+        options={[
+          { value: "contain", label: "Sığdır" },
+          { value: "cover", label: "Kutuyu doldur" },
+        ]}
+        onChange={(fit) => patchBlock(block, { ...data, fit })}
+      />
       <CheckField
         id="video-tile"
-        label="Sayfaya döşe (genişlik ve hizalama)"
+        label="Metnin yanına döşe"
         checked={data.tile}
-        onChange={(tile) => patchBlock(block, { ...data, tile, width: tile ? 48 : 100, align: tile ? "left" : "center" })}
+        onChange={(tile) => patchBlock(block, { ...data, tile })}
       />
-      {data.tile ? (
-        <>
-          <SelectField
-            id="video-align"
-            label="Hizalama"
-            value={data.align}
-            options={[
-              { value: "left", label: "Sol" },
-              { value: "center", label: "Orta" },
-              { value: "right", label: "Sağ" },
-            ]}
-            onChange={(align) => patchBlock(block, { ...data, align })}
-          />
-          <NumberField
-            id="video-width"
-            label="Genişlik (%)"
-            value={data.width}
-            min={20}
-            max={100}
-            onChange={(width) => patchBlock(block, { ...data, width })}
-          />
-        </>
-      ) : null}
       <CheckField
         id="video-pdf-preview"
         label="PDF görünümünü göster (küçük resim + başlık + QR)"

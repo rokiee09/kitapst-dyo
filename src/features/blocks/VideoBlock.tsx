@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -16,8 +16,11 @@ import type { ContentBlock } from "@/types/domain";
 
 export function VideoBlock({ block, editable }: { block: ContentBlock; editable: boolean }) {
   const data = readVideoData(block.data);
+  const selected = useEditorStore((state) => state.selectedBlockId === block.id);
   const [localSrc, setLocalSrc] = useState<string | null>(null);
   const [thumbSrc, setThumbSrc] = useState<string | null>(null);
+  const [resizing, setResizing] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
   const hasLocal = Boolean(data.relativePath);
   const hasUrl = Boolean(data.url.trim());
   const urlOk = hasUrl && isSafeExternalUrl(data.url);
@@ -68,6 +71,35 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
     useEditorStore.getState().scheduleSave(block.id);
   }
 
+  function startResize(event: ReactPointerEvent<HTMLButtonElement>, edge: "e" | "se" | "w") {
+    if (!editable) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const page = frameRef.current?.closest(".book-page");
+    const pageWidth = page?.clientWidth ?? 720;
+    const startX = event.clientX;
+    const startWidth = data.width;
+    const grow = data.align === "center" ? 2 : 1;
+    setResizing(true);
+
+    function onMove(moveEvent: PointerEvent) {
+      const dx = moveEvent.clientX - startX;
+      const signed = edge === "w" ? -dx : dx;
+      const next = Math.min(100, Math.max(16, Math.round(startWidth + (signed / pageWidth) * 100 * grow)));
+      useEditorStore.getState().updateBlockLocal(block.id, { data: { ...data, width: next } });
+    }
+
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setResizing(false);
+      useEditorStore.getState().scheduleSave(block.id);
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
   async function chooseVideo() {
     try {
       const path = await pickLocalFile("video");
@@ -78,6 +110,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
         assetId: asset.id,
         relativePath: asset.relativePath,
         title: data.title || asset.filename,
+        width: data.width || 100,
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Video eklenemedi.");
@@ -105,23 +138,26 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
       : data.tile && data.align === "right"
         ? "float-right ml-3 mb-2"
         : "";
+  const hasMedia = Boolean(localSrc || youtubeId || vimeoId || urlOk);
 
   return (
     <div className={data.tile ? "min-h-[8rem]" : "space-y-3"}>
       <div
-        className={
-          data.tile
-            ? cn("overflow-hidden rounded-lg bg-slate-900", alignClass, floatClass)
-            : "grid grid-cols-[1.4fr_1fr] gap-3 rounded-xl border border-[#dbe4ef] bg-[#f8fafc] p-3"
-        }
-        style={data.tile ? { width: `${data.width}%` } : undefined}
+        ref={frameRef}
+        className={cn(
+          "relative overflow-hidden rounded-lg bg-slate-900",
+          alignClass,
+          floatClass,
+          !data.tile && "border border-[#dbe4ef]",
+        )}
+        style={{ width: `${data.width}%` }}
       >
-        <div className={data.tile ? "min-w-0" : "min-w-0 overflow-hidden rounded-lg bg-slate-900"}>
+        <div className="min-w-0">
           {data.previewAsPdf ? (
             thumbSrc ? (
-              <img src={thumbSrc} alt="" className="h-full w-full object-cover" />
+              <img src={thumbSrc} alt="" className="aspect-video h-auto w-full object-cover" />
             ) : (
-              <div className="flex h-32 items-center justify-center text-xs text-slate-300">Küçük resim yok</div>
+              <div className="flex aspect-video items-center justify-center text-xs text-slate-300">Küçük resim yok</div>
             )
           ) : (
             <VideoPlayer
@@ -131,21 +167,42 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
               url={data.url}
               urlOk={urlOk}
               fit={data.fit}
-              tile={data.tile}
             />
           )}
         </div>
-        {data.tile ? null : (
-          <div className="min-w-0 py-1">
-            <div className="text-sm font-semibold text-[#152033]">{data.title || "Eğitim Videosu"}</div>
+        {!data.tile && (data.title || data.description || data.duration) ? (
+          <div className="border-t border-white/10 bg-[#f8fafc] px-3 py-2 text-[#152033]">
+            <div className="text-sm font-semibold">{data.title || "Eğitim Videosu"}</div>
             {data.description ? <p className="mt-1 text-xs text-[#5b6578]">{data.description}</p> : null}
-            {data.duration ? <div className="mt-3 text-xs text-[#5b6578]">Süre: {data.duration}</div> : null}
-            <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-[#5b6578]">
-              {hasLocal ? <span className="rounded bg-white px-1.5 py-0.5">Yerel dosya</span> : null}
-              {urlOk ? <span className="rounded bg-white px-1.5 py-0.5">Bağlantı</span> : null}
-            </div>
+            {data.duration ? <div className="mt-1 text-xs text-[#5b6578]">Süre: {data.duration}</div> : null}
           </div>
-        )}
+        ) : null}
+        {editable && selected && hasMedia ? (
+          <>
+            <button
+              type="button"
+              aria-label="Soldan boyutlandır"
+              className="absolute top-1/2 left-0 z-10 h-8 w-3 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize rounded-sm border border-blue-500 bg-white shadow"
+              onPointerDown={(event) => startResize(event, "w")}
+            />
+            <button
+              type="button"
+              aria-label="Sağdan boyutlandır"
+              className="absolute top-1/2 right-0 z-10 h-8 w-3 -translate-y-1/2 translate-x-1/2 cursor-ew-resize rounded-sm border border-blue-500 bg-white shadow"
+              onPointerDown={(event) => startResize(event, "e")}
+            />
+            <button
+              type="button"
+              aria-label="Köşeden boyutlandır"
+              className="absolute right-0 bottom-0 z-10 h-3.5 w-3.5 translate-x-1/2 translate-y-1/2 cursor-nwse-resize rounded-sm border border-blue-500 bg-white shadow"
+              onPointerDown={(event) => startResize(event, "se")}
+            />
+            <div className="pointer-events-none absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+              %{data.width}
+              {resizing ? " · bırakınca kaydedilir" : ""}
+            </div>
+          </>
+        ) : null}
       </div>
       {data.tile ? <div className="clear-both" /> : null}
       <MediaCaption
@@ -197,7 +254,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
               ) : null}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant="paper"
@@ -220,58 +277,61 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
             <Button size="sm" variant="paper" onClick={() => void chooseThumb()}>
               Küçük resim seç
             </Button>
+            <label className="flex min-w-44 flex-1 items-center gap-2 text-[11px] text-[#5b6578]">
+              Boyut
+              <input
+                type="range"
+                min={16}
+                max={100}
+                value={data.width}
+                onChange={(event) => patch({ width: Number(event.target.value) })}
+                className="w-full accent-blue-600"
+              />
+              <span className="w-8 tabular-nums">%{data.width}</span>
+            </label>
           </div>
-          <p className="text-[10px] text-[#5b6578]">
-            QR isteğe bağlıdır. Eklendiğinde ayrı bir QR bloğu oluşur; telefon videoya yönlenir.
-          </p>
-          <label className="flex items-center gap-2 text-sm text-[#152033]">
-            <input
-              type="checkbox"
-              className="accent-blue-600"
-              checked={data.tile}
-              onChange={(event) =>
-                patch({
-                  tile: event.target.checked,
-                  width: event.target.checked ? 48 : 100,
-                  align: event.target.checked ? "left" : "center",
-                  fit: "cover",
-                })
-              }
-            />
-            Sayfaya döşe
-          </label>
-          {data.tile ? (
-            <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="text-[11px] text-[#5b6578]">
+              Hizalama
               <select
-                className="h-8 rounded-md border border-[#dbe4ef] bg-white px-2 text-sm"
+                className="mt-1 h-8 w-full rounded-md border border-[#dbe4ef] bg-white px-2 text-sm text-[#152033]"
                 value={data.align}
                 onChange={(event) => patch({ align: event.target.value })}
               >
-                <option value="left">Sola yasla</option>
-                <option value="center">Ortala</option>
-                <option value="right">Sağa yasla</option>
+                <option value="left">Sola</option>
+                <option value="center">Orta</option>
+                <option value="right">Sağa</option>
               </select>
+            </label>
+            <label className="text-[11px] text-[#5b6578]">
+              Sığdırma
               <select
-                className="h-8 rounded-md border border-[#dbe4ef] bg-white px-2 text-sm"
+                className="mt-1 h-8 w-full rounded-md border border-[#dbe4ef] bg-white px-2 text-sm text-[#152033]"
                 value={data.fit}
                 onChange={(event) => patch({ fit: event.target.value })}
               >
-                <option value="cover">Kutuyu doldur</option>
                 <option value="contain">Sığdır</option>
+                <option value="cover">Kutuyu doldur</option>
               </select>
-              <label className="col-span-full text-[11px] text-[#5b6578]">
-                Genişlik %{data.width}
-                <input
-                  type="range"
-                  min={20}
-                  max={100}
-                  value={data.width}
-                  className="mt-1 w-full accent-blue-600"
-                  onChange={(event) => patch({ width: Number(event.target.value) })}
-                />
-              </label>
-            </div>
-          ) : null}
+            </label>
+            <label className="flex items-end gap-2 pb-1 text-sm text-[#152033]">
+              <input
+                type="checkbox"
+                className="accent-blue-600"
+                checked={data.tile}
+                onChange={(event) =>
+                  patch({
+                    tile: event.target.checked,
+                    align: event.target.checked ? data.align || "left" : data.align,
+                  })
+                }
+              />
+              Metnin yanına döşe
+            </label>
+          </div>
+          <p className="text-[10px] text-[#5b6578]">
+            Kenarlardan sürükleyerek veya kaydırıcıyla videoyu istediğiniz oranda küçültüp büyütebilirsiniz.
+          </p>
         </div>
       ) : null}
     </div>
@@ -285,7 +345,6 @@ function VideoPlayer({
   url,
   urlOk,
   fit,
-  tile,
 }: {
   localSrc: string | null;
   youtubeId: string | null;
@@ -293,18 +352,23 @@ function VideoPlayer({
   url: string;
   urlOk: boolean;
   fit: "contain" | "cover";
-  tile: boolean;
 }) {
-  const box = tile ? "aspect-video w-full bg-black" : "w-full rounded-md bg-black";
+  const box = "aspect-video w-full bg-black";
   if (localSrc) {
-    return <video src={localSrc} controls className={cn(box, fit === "cover" ? "object-cover" : "object-contain")} />;
+    return (
+      <video
+        src={localSrc}
+        controls
+        className={cn(box, fit === "cover" ? "object-cover" : "object-contain")}
+      />
+    );
   }
   if (youtubeId) {
     return (
       <iframe
         title="YouTube videosu"
         src={youtubeEmbedUrl(youtubeId)}
-        className="aspect-video w-full rounded-md border-0"
+        className="aspect-video w-full border-0"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
       />
@@ -315,7 +379,7 @@ function VideoPlayer({
       <iframe
         title="Vimeo videosu"
         src={vimeoEmbedUrl(vimeoId)}
-        className="aspect-video w-full rounded-md border-0"
+        className="aspect-video w-full border-0"
         allow="autoplay; fullscreen; picture-in-picture"
         allowFullScreen
       />
@@ -323,20 +387,20 @@ function VideoPlayer({
   }
   if (urlOk) {
     return (
-      <div className="rounded-md border border-dashed border-[#d6d0c4] bg-[#f6f1e6] p-4 text-sm text-[#5b6578]">
-        Bağlantı kaydedildi. YouTube/Vimeo değilse editörde oynatıcı yok. Telefona yönlendirmek için QR olarak ekleyin.
+      <div className="flex aspect-video items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] p-4 text-sm text-[#5b6578]">
+        Bağlantı kaydedildi. YouTube/Vimeo değilse editörde oynatıcı yok.
       </div>
     );
   }
   if (url.trim()) {
     return (
-      <div className="flex min-h-36 items-center justify-center rounded-md border border-dashed border-[#d6d0c4] bg-[#f6f1e6] text-sm text-[#5b6578]">
+      <div className="flex aspect-video items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] text-sm text-[#5b6578]">
         Geçerli bir http/https adresi girin
       </div>
     );
   }
   return (
-    <div className="flex min-h-36 items-center justify-center rounded-md border border-dashed border-[#d6d0c4] bg-[#f6f1e6] text-sm text-[#5b6578]">
+    <div className="flex aspect-video items-center justify-center border border-dashed border-[#d6d0c4] bg-[#f6f1e6] text-sm text-[#5b6578]">
       Yerel dosya veya bağlantı ekleyin
     </div>
   );

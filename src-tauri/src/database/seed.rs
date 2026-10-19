@@ -31,7 +31,6 @@ pub fn seed_named_book(conn: &Connection, project_root: &Path, title: &str) -> R
     let book_id = new_id();
     let settings_id = new_id();
     let version_id = new_id();
-    let chapter_id = new_id();
     let book_title = if title.trim().is_empty() {
         "Adsız Kitap"
     } else {
@@ -56,22 +55,32 @@ pub fn seed_named_book(conn: &Connection, project_root: &Path, title: &str) -> R
             ts
         ],
     )?;
+    let front_first = crate::frontmatter::seed_book_front_matter(conn, &book_id)?;
+    let content_id = new_id();
+    let content_order = 4i64;
     conn.execute(
         "INSERT INTO chapter (id, book_id, parent_id, title, number, sort_order, created_at, updated_at)
-         VALUES (?1, ?2, NULL, 'Giriş', '1', 0, ?3, ?4)",
-        params![chapter_id, book_id, ts, ts],
+         VALUES (?1, ?2, NULL, '1. Bölüm', '1', ?3, ?4, ?5)",
+        params![content_id, book_id, content_order, ts, ts],
     )?;
     insert_block(
         conn,
-        &chapter_id,
+        &content_id,
         "paragraph",
         0,
         json!({ "content": rich_paragraph("Yazmaya buradan başlayın.") }),
     )?;
+    crate::frontmatter::ensure_chapter_front_pages(conn, &book_id, &content_id)?;
+    crate::frontmatter::refresh_book_toc(conn, &book_id)?;
+    let open_id = if front_first.is_empty() {
+        content_id.clone()
+    } else {
+        front_first
+    };
     conn.execute(
         "INSERT INTO project_settings (id, project_id, autosave_ms, last_opened_chapter_id, theme, created_at, updated_at)
          VALUES (?1, ?2, 800, ?3, 'system', ?4, ?5)",
-        params![settings_id, project_id, chapter_id, ts, ts],
+        params![settings_id, project_id, open_id, ts, ts],
     )?;
     conn.execute(
         "INSERT INTO book_version (id, book_id, version, changelog, created_at)

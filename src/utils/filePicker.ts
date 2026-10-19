@@ -1,6 +1,20 @@
 import { isTauriRuntime } from "@/services/tauri/invoke";
 import { registerPreviewFile } from "@/services/browser/previewFiles";
 
+export async function pickLocalFolder(title = "Drive klasörü seç"): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    const path = window.prompt("Paylaşılan Drive klasör yolu (ör. G:\\\\Benim Drive\\\\KitapStudio)", "");
+    return path?.trim() || null;
+  }
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const selected = await open({
+    multiple: false,
+    directory: true,
+    title,
+  });
+  return asSinglePath(selected);
+}
+
 export async function pickLocalFile(kind: "image" | "video" | "file" | "zip" | "word"): Promise<string | null> {
   if (!isTauriRuntime()) return pickBrowserFile(kind);
   const { open } = await import("@tauri-apps/plugin-dialog");

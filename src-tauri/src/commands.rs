@@ -11,7 +11,11 @@ use serde_json::json;
 use std::collections::HashSet;
 
 #[tauri::command]
-pub fn get_workspace(state: tauri::State<AppState>) -> Result<WorkspaceSnapshot, AppError> {
+pub fn get_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+) -> Result<WorkspaceSnapshot, AppError> {
+    crate::sync::try_pull_on_load(&app, &state);
     workspace_snapshot(&state)
 }
 
@@ -142,6 +146,19 @@ pub fn create_chapter(
     )?;
     if let Some(template_id) = payload.template_id.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
         crate::extras::insert_template_blocks(&conn, &id, template_id)?;
+    } else if payload.parent_id.is_none()
+        && !matches!(
+            title,
+            "Kapak" | "Önsöz" | "Giriş" | "İçindekiler"
+        )
+    {
+        // Her yeni üst bölümde Önsöz / Giriş / İçindekiler otomatik oluşur.
+        crate::frontmatter::ensure_chapter_front_pages(&conn, &payload.book_id, &id)?;
+        crate::frontmatter::refresh_book_toc(&conn, &payload.book_id)?;
+    } else if payload.parent_id.is_none() {
+        crate::frontmatter::refresh_book_toc(&conn, &payload.book_id)?;
+    } else if let Some(parent) = payload.parent_id.as_deref() {
+        crate::frontmatter::refresh_chapter_toc(&conn, &payload.book_id, parent)?;
     }
     database::get_chapter(&conn, &id)
 }
@@ -160,10 +177,16 @@ pub fn rename_chapter(
             "empty chapter title",
         ));
     }
+    let chapter = database::get_chapter(&conn, &id)?;
     conn.execute(
         "UPDATE chapter SET title = ?1, updated_at = ?2 WHERE id = ?3",
         params![trimmed, now(), id],
     )?;
+    if let Some(parent) = chapter.parent_id.as_deref() {
+        let _ = crate::frontmatter::refresh_chapter_toc(&conn, &chapter.book_id, parent);
+    } else {
+        let _ = crate::frontmatter::refresh_book_toc(&conn, &chapter.book_id);
+    }
     database::get_chapter(&conn, &id)
 }
 
@@ -182,7 +205,14 @@ pub fn delete_chapter(state: tauri::State<AppState>, id: String) -> Result<(), A
             "refusing to delete last chapter",
         ));
     }
+    let parent_id = chapter.parent_id.clone();
+    let book_id = chapter.book_id.clone();
     conn.execute("DELETE FROM chapter WHERE id = ?1", [&id])?;
+    if let Some(parent) = parent_id.as_deref() {
+        let _ = crate::frontmatter::refresh_chapter_toc(&conn, &book_id, parent);
+    } else {
+        let _ = crate::frontmatter::refresh_book_toc(&conn, &book_id);
+    }
     Ok(())
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { isTauriRuntime } from "@/services/tauri/invoke";
 import { assetService } from "@/services/assets";
 import { pickLocalFile } from "@/utils/filePicker";
 import { insertQrBlock } from "@/features/blocks/insertQr";
@@ -31,7 +32,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
       }
       try {
         const abs = await assetService.resolvePath(data.relativePath);
-        if (!cancelled) setLocalSrc(convertFileSrc(abs));
+        if (!cancelled) setLocalSrc(isTauriRuntime() ? convertFileSrc(abs) : abs);
       } catch (error) {
         console.error("[kitap-studiosu] video", error);
         if (!cancelled) setLocalSrc(null);

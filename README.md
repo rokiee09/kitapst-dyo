@@ -12,6 +12,15 @@ Kısaca: `Uygulama/Kurulum.exe` dosyasını hedef Windows 10/11 makineye kopyala
 
 Gereksinimler: Node.js 22+, Rust (stable, MSVC), Visual Studio Build Tools (C++).
 
+Tarayıcıda arayüze bakmak (kitap bu sekmenin belleğinde durur, Windows kurulumunun yerine geçmez):
+
+```bash
+npm install
+npm run dev
+```
+
+Masaüstü uygulaması:
+
 ```bash
 npm install
 npm run tauri dev

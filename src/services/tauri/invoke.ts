@@ -1,10 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
+import { previewInvoke } from "@/services/browser/previewBackend";
 
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 export async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isTauriRuntime()) {
+    try {
+      return await previewInvoke<T>(command, args);
+    } catch (error) {
+      const message = normalizeError(error);
+      console.error(`[kitap-studiosu] ${command}`, error);
+      throw new Error(message, { cause: error });
+    }
+  }
   try {
     return await invoke<T>(command, args);
   } catch (error) {

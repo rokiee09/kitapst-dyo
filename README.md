@@ -39,3 +39,8 @@ npm run typecheck
 npm run lint
 npm run test
 ```
+
+## Yeni bölüm ve Drive senkronu
+
+- Yeni üst düzey bölüm oluşturulunca altında **Önsöz**, **Giriş** ve **İçindekiler** sayfaları otomatik gelir; kitap kökündeki İçindekiler listesi de güncellenir.
+- **Ayarlar → Çoklu çalışma (Drive klasörü)** ile Google Drive masaüstü klasörünü seç. Kaydettiğin içerik o klasöre yazılır; başka bilgisayarda aynı klasör seçilince uygulama açılışında güncel kitap alınır. Aynı anda iki kişi düzenlemesin.

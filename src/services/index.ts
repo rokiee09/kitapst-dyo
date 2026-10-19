@@ -8,6 +8,15 @@ import type {
   WorkspaceSnapshot,
 } from "@/types/domain";
 
+export interface DriveSyncSettings {
+  enabled: boolean;
+  folderPath: string;
+  machineId: string;
+  lastPushAt: string | null;
+  lastPullAt: string | null;
+  warning: string | null;
+}
+
 export const projectService = {
   getWorkspace(): Promise<WorkspaceSnapshot> {
     return invokeCommand<WorkspaceSnapshot>("get_workspace");
@@ -26,6 +35,18 @@ export const projectService = {
   },
   openLibraryBook(path: string): Promise<WorkspaceSnapshot> {
     return invokeCommand("open_library_book", { path });
+  },
+  getDriveSync(): Promise<DriveSyncSettings> {
+    return invokeCommand("get_drive_sync_settings");
+  },
+  setDriveSync(enabled: boolean, folderPath: string): Promise<DriveSyncSettings> {
+    return invokeCommand("set_drive_sync_settings", { enabled, folderPath });
+  },
+  pushDriveSync(): Promise<DriveSyncSettings> {
+    return invokeCommand("push_drive_sync");
+  },
+  pullDriveSync(): Promise<WorkspaceSnapshot> {
+    return invokeCommand("pull_drive_sync");
   },
 };
 

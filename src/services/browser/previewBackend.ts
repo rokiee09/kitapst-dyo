@@ -104,6 +104,14 @@ async function dispatch(command: string, args: Record<string, unknown>): Promise
       return createLibraryBook(str(args.title));
     case "open_library_book":
       return openLibraryBook(str(args.path));
+    case "get_drive_sync_settings":
+      return getDriveSync();
+    case "set_drive_sync_settings":
+      return setDriveSync(Boolean(args.enabled), str(args.folderPath));
+    case "push_drive_sync":
+      return pushDriveSync();
+    case "pull_drive_sync":
+      return pullDriveSync();
     case "list_notes":
       return [...current().notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     case "upsert_note":
@@ -236,7 +244,22 @@ function createChapter(raw: Record<string, unknown>): Chapter {
   };
   book.chapters.push(chapter);
   const templateId = nonempty(raw.templateId);
-  if (templateId) insertTemplateSpecs(book, chapter.id, templateSpecs(book, templateId));
+  if (templateId) {
+    insertTemplateSpecs(book, chapter.id, templateSpecs(book, templateId));
+  } else if (
+    !parentId &&
+    title !== "Kapak" &&
+    title !== "Önsöz" &&
+    title !== "Giriş" &&
+    title !== "İçindekiler"
+  ) {
+    ensureChapterFrontPages(book, chapter.id);
+    refreshBookToc(book);
+  } else if (!parentId) {
+    refreshBookToc(book);
+  } else {
+    refreshChapterToc(book, parentId);
+  }
   book.settings.lastOpenedChapterId = chapter.id;
   persist();
   return chapter;
@@ -1001,13 +1024,26 @@ function emptyBook(title: string, path: string): StoredBook {
   const ts = now();
   const projectId = crypto.randomUUID();
   const bookId = crypto.randomUUID();
-  const chapterId = crypto.randomUUID();
   const book = emptyShell(projectId, bookId, title, path, ts);
   book.book.subtitle = "Yaz • Tasarla • Yayınla";
   book.book.description = "Bu kitap Kitap Stüdyosu ile oluşturuldu.";
-  book.chapters = [chapter(bookId, chapterId, null, "Giriş", "1", 0, ts)];
-  book.blocks = [block(chapterId, "paragraph", 0, { content: richParagraph("Yazmaya buradan başlayın.") }, ts)];
-  book.settings.lastOpenedChapterId = chapterId;
+  const front = [
+    ["Kapak", "builtin-kapak"],
+    ["Önsöz", "builtin-onsoz"],
+    ["İçindekiler", "builtin-icindekiler"],
+    ["Giriş", "builtin-giris"],
+  ] as const;
+  front.forEach(([pageTitle, templateId], order) => {
+    const id = crypto.randomUUID();
+    book.chapters.push(chapter(bookId, id, null, pageTitle, null, order, ts));
+    insertTemplateSpecs(book, id, templateSpecs(book, templateId));
+  });
+  const contentId = crypto.randomUUID();
+  book.chapters.push(chapter(bookId, contentId, null, "1. Bölüm", "1", 4, ts));
+  book.blocks.push(block(contentId, "paragraph", 0, { content: richParagraph("Yazmaya buradan başlayın.") }, ts));
+  ensureChapterFrontPages(book, contentId);
+  refreshBookToc(book);
+  book.settings.lastOpenedChapterId = book.chapters[0]?.id ?? contentId;
   book.versions = [
     {
       id: crypto.randomUUID(),
@@ -1020,6 +1056,174 @@ function emptyBook(title: string, path: string): StoredBook {
     },
   ];
   return book;
+}
+
+const DRIVE_KEY = "kitap-studiosu-drive-sync";
+
+function getDriveSync() {
+  try {
+    const raw = localStorage.getItem(DRIVE_KEY);
+    if (raw) return JSON.parse(raw) as {
+      enabled: boolean;
+      folderPath: string;
+      machineId: string;
+      lastPushAt: string | null;
+      lastPullAt: string | null;
+      warning: string | null;
+    };
+  } catch {
+    // ignore
+  }
+  return {
+    enabled: false,
+    folderPath: "",
+    machineId: crypto.randomUUID(),
+    lastPushAt: null,
+    lastPullAt: null,
+    warning: null as string | null,
+  };
+}
+
+function setDriveSync(enabled: boolean, folderPath: string) {
+  const current = getDriveSync();
+  const next = {
+    ...current,
+    enabled,
+    folderPath: folderPath.trim(),
+    warning: enabled
+      ? "Tarayıcı önizlemesinde Drive klasörüne gerçek dosya yazılmaz; ayar kayıtlı kalır. Masaüstü uygulamada Google Drive klasörüne yazar."
+      : null,
+  };
+  localStorage.setItem(DRIVE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function pushDriveSync() {
+  const settings = getDriveSync();
+  if (!settings.enabled) return settings;
+  const next = {
+    ...settings,
+    lastPushAt: now(),
+    warning:
+      "Tarayıcı önizlemesi: kayıt bu sekmede. Gerçek Drive yazımı için masaüstü uygulamasını kullanın.",
+  };
+  localStorage.setItem(DRIVE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function pullDriveSync() {
+  const settings = getDriveSync();
+  settings.lastPullAt = now();
+  localStorage.setItem(DRIVE_KEY, JSON.stringify(settings));
+  return snapshot(current());
+}
+
+function ensureChapterFrontPages(book: StoredBook, parentId: string) {
+  const pages = [
+    ["Önsöz", "builtin-onsoz"],
+    ["Giriş", "builtin-giris"],
+    ["İçindekiler", "builtin-icindekiler"],
+  ] as const;
+  for (const [title, templateId] of pages) {
+    if (book.chapters.some((chapter) => chapter.parentId === parentId && chapter.title === title)) continue;
+    const siblings = book.chapters.filter((chapter) => chapter.parentId === parentId);
+    const order = siblings.reduce((max, chapter) => Math.max(max, chapter.order), -1) + 1;
+    const ts = now();
+    const id = crypto.randomUUID();
+    book.chapters.push({
+      id,
+      bookId: book.book.id,
+      parentId,
+      title,
+      number: chapterNumber(book, parentId, order),
+      order,
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    insertTemplateSpecs(book, id, templateSpecs(book, templateId));
+  }
+  refreshChapterToc(book, parentId);
+}
+
+function refreshBookToc(book: StoredBook) {
+  const toc = book.chapters.find((chapter) => !chapter.parentId && chapter.title === "İçindekiler");
+  if (!toc) return;
+  writeToc(book, toc.id, null);
+}
+
+function refreshChapterToc(book: StoredBook, parentId: string) {
+  const toc = book.chapters.find((chapter) => chapter.parentId === parentId && chapter.title === "İçindekiler");
+  if (!toc) return;
+  writeToc(book, toc.id, parentId);
+}
+
+function writeToc(book: StoredBook, tocId: string, parentId: string | null) {
+  const items = book.chapters.filter((chapter) => {
+    if (chapter.id === tocId) return false;
+    if (parentId) {
+      return (
+        chapter.parentId === parentId &&
+        chapter.title !== "Önsöz" &&
+        chapter.title !== "Giriş" &&
+        chapter.title !== "İçindekiler"
+      );
+    }
+    return (
+      !chapter.parentId &&
+      chapter.title !== "Kapak" &&
+      chapter.title !== "Önsöz" &&
+      chapter.title !== "Giriş" &&
+      chapter.title !== "İçindekiler"
+    );
+  });
+  book.blocks = book.blocks.filter((block) => block.chapterId !== tocId);
+  const ts = now();
+  book.blocks.push(
+    block(
+      tocId,
+      "heading",
+      0,
+      {
+        level: 1,
+        content: {
+          type: "doc",
+          content: [{ type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "İçindekiler" }] }],
+        },
+      },
+      ts,
+    ),
+  );
+  const listItems = items.map((chapter) => ({
+    type: "listItem",
+    content: [
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: chapter.number ? `${chapter.number} ${chapter.title}` : chapter.title,
+          },
+        ],
+      },
+    ],
+  }));
+  book.blocks.push(
+    block(
+      tocId,
+      "orderedList",
+      1,
+      {
+        content: {
+          type: "doc",
+          content:
+            listItems.length > 0
+              ? [{ type: "orderedList", content: listItems }]
+              : [{ type: "paragraph", content: [{ type: "text", text: "Henüz listelenecek bölüm yok." }] }],
+        },
+      },
+      ts,
+    ),
+  );
 }
 
 function emptyShell(projectId: string, bookId: string, title: string, path: string, ts: string): StoredBook {

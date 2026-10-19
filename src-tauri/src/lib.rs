@@ -6,10 +6,12 @@ mod error;
 mod export;
 mod extras;
 mod filesystem;
+mod frontmatter;
 mod library;
 mod models;
 mod proofread;
 mod state;
+mod sync;
 
 use tauri::Manager;
 
@@ -76,6 +78,10 @@ pub fn run() {
             proofread::proofread_ai,
             proofread::save_proofread_settings,
             proofread::load_proofread_settings,
+            sync::get_drive_sync_settings,
+            sync::set_drive_sync_settings,
+            sync::push_drive_sync,
+            sync::pull_drive_sync,
         ])
         .run(tauri::generate_context!())
         .expect("Kitap Stüdyosu başlatılamadı.");

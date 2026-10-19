@@ -1,11 +1,11 @@
 import { BookSettingsView } from "@/features/books/BookSettingsView";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { folderService, projectService } from "@/services";
-import { pickLocalFile } from "@/utils/filePicker";
+import { folderService, projectService, type DriveSyncSettings } from "@/services";
+import { pickLocalFile, pickLocalFolder } from "@/utils/filePicker";
 import { useEditorStore } from "@/stores/editorStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { aiProofread } from "@/features/proofread/aiProofread";
@@ -16,6 +16,7 @@ export function SettingsView() {
     <div className="h-full overflow-auto bg-[#0d1524]">
       <BookSettingsView />
       <div className="mx-auto max-w-2xl space-y-4 px-8 pb-8">
+        <DriveSyncCard />
         <ProofreadAiCard />
         <div className="rounded-lg border border-[#1c2a44] bg-[#070b14] p-4">
           <h2 className="mb-2 font-medium">Klasörler</h2>
@@ -74,6 +75,140 @@ export function SettingsView() {
             </Button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DriveSyncCard() {
+  const [settings, setSettings] = useState<DriveSyncSettings | null>(null);
+  const [folderPath, setFolderPath] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const pullDriveSync = useWorkspaceStore((state) => state.pullDriveSync);
+
+  useEffect(() => {
+    void projectService
+      .getDriveSync()
+      .then((next) => {
+        setSettings(next);
+        setFolderPath(next.folderPath);
+        setEnabled(next.enabled);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  async function save(nextEnabled = enabled, nextPath = folderPath) {
+    setBusy(true);
+    try {
+      const saved = await projectService.setDriveSync(nextEnabled, nextPath.trim());
+      setSettings(saved);
+      setEnabled(saved.enabled);
+      setFolderPath(saved.folderPath);
+      if (saved.warning) toast.message(saved.warning);
+      else toast.success(saved.enabled ? "Drive senkronu açıldı ve kitap yedeklendi." : "Drive senkronu kapandı.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Drive ayarı kaydedilemedi.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-[#1c2a44] bg-[#070b14] p-4">
+      <h2 className="mb-2 font-medium">Çoklu çalışma (Drive klasörü)</h2>
+      <p className="mb-3 text-sm text-[#8aa0bd]">
+        Kaydettiğin kitap (metin, görsel, video) seçtiğin Google Drive klasörüne yazılır. Başka
+        bilgisayarda aynı Drive klasörünü seçen kullanıcı uygulamayı açınca güncel içeriği görür.
+        Aynı anda iki kişi düzenlemesin; son kayıt geçerli olur.
+      </p>
+      <div className="space-y-3">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setEnabled(next);
+              if (!next) void save(false, folderPath);
+            }}
+          />
+          Drive klasörüne otomatik yedekle
+        </label>
+        <div>
+          <Label htmlFor="drive-path">Paylaşılan klasör</Label>
+          <div className="mt-1 flex gap-2">
+            <Input
+              id="drive-path"
+              value={folderPath}
+              placeholder="Örn. G:\\Benim Drive\\KitapStudio"
+              onChange={(event) => setFolderPath(event.target.value)}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                void pickLocalFolder().then((path) => {
+                  if (!path) return;
+                  setFolderPath(path);
+                });
+              }}
+            >
+              Seç
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={busy} onClick={() => void save(true, folderPath)}>
+            Kaydet ve senkronla
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => {
+              void (async () => {
+                setBusy(true);
+                try {
+                  await useEditorStore.getState().flushSave();
+                  const next = await projectService.pushDriveSync();
+                  setSettings(next);
+                  if (next.warning) toast.message(next.warning);
+                  else toast.success("Drive klasörüne yazıldı.");
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Drive’a yazılamadı.");
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            }}
+          >
+            Şimdi yedekle
+          </Button>
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              void (async () => {
+                setBusy(true);
+                try {
+                  const snapshot = await pullDriveSync();
+                  if (snapshot) {
+                    useEditorStore.getState().setBlocks(snapshot.selectedBlocks);
+                    toast.success("Drive’dan güncel kitap alındı.");
+                  }
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            }}
+          >
+            Drive’dan al
+          </Button>
+        </div>
+        {settings?.lastPushAt ? (
+          <p className="text-xs text-[#8aa0bd]">Son yedek: {new Date(settings.lastPushAt).toLocaleString("tr-TR")}</p>
+        ) : null}
+        {settings?.warning ? <p className="text-xs text-amber-300">{settings.warning}</p> : null}
       </div>
     </div>
   );

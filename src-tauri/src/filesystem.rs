@@ -122,7 +122,7 @@ pub fn safe_child_path(base: &Path, relative: &str) -> Result<PathBuf, AppError>
     Ok(base.join(sanitized))
 }
 
-fn app_state_file_path(app: &AppHandle) -> Result<PathBuf, AppError> {
+pub fn app_state_file_path(app: &AppHandle) -> Result<PathBuf, AppError> {
     let mut dirs = Vec::new();
     push_ok(&mut dirs, app.path().app_local_data_dir().ok());
     push_ok(&mut dirs, app.path().app_data_dir().ok());
@@ -221,10 +221,22 @@ fn write_last_project(path: &Path, project_root: &Path) -> Result<(), AppError> 
     if let Some(parent) = path.parent() {
         create_dir_logged(parent)?;
     }
-    let payload = AppStateFile {
-        last_project_path: Some(project_root.to_string_lossy().to_string()),
+    let mut value = if path.exists() {
+        serde_json::from_str(&fs::read_to_string(path).unwrap_or_default())
+            .unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
     };
-    fs::write(path, serde_json::to_vec_pretty(&payload)?).map_err(|err| {
+    if !value.is_object() {
+        value = serde_json::json!({});
+    }
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "lastProjectPath".into(),
+            serde_json::Value::String(project_root.to_string_lossy().to_string()),
+        );
+    }
+    fs::write(path, serde_json::to_vec_pretty(&value)?).map_err(|err| {
         AppError::user(
             "Uygulama durumu kaydedilemedi.",
             format!("{}: {err}", path.display()),

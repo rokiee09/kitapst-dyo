@@ -58,6 +58,8 @@ interface WorkspaceState {
   applySnapshot: (snapshot: WorkspaceSnapshot) => void;
   createLibraryBook: (title: string) => Promise<WorkspaceSnapshot | null>;
   openLibraryBook: (path: string) => Promise<WorkspaceSnapshot | null>;
+  pushDriveSync: () => Promise<void>;
+  pullDriveSync: () => Promise<WorkspaceSnapshot | null>;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -114,8 +116,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         title: options?.title?.trim() || (parentId ? "Yeni Alt Bölüm" : "Yeni Bölüm"),
         templateId: options?.templateId ?? null,
       });
-      set({ chapters: [...get().chapters, chapter], selectedChapterId: chapter.id });
+      // Önsöz / Giriş / İçindekiler otomatik eklendiği için tüm ağacı yenile.
+      const snapshot = await projectService.getWorkspace();
+      set({
+        chapters: snapshot.chapters,
+        selectedChapterId: chapter.id,
+        stats: snapshot.stats,
+      });
       await get().refreshStats();
+      void get().pushDriveSync();
       return chapter;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Bölüm oluşturulamadı.");
@@ -259,9 +268,30 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const snapshot = await projectService.openLibraryBook(path);
       get().applySnapshot(snapshot);
       toast.success(`“${snapshot.book.title}” açıldı.`);
+      void get().pushDriveSync();
       return snapshot;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Kitap açılamadı.");
+      return null;
+    }
+  },
+
+  pushDriveSync: async () => {
+    try {
+      const settings = await projectService.pushDriveSync();
+      if (settings.warning) toast.message(settings.warning);
+    } catch {
+      // Drive kapalıysa veya klasör yoksa sessiz geç.
+    }
+  },
+
+  pullDriveSync: async () => {
+    try {
+      const snapshot = await projectService.pullDriveSync();
+      get().applySnapshot(snapshot);
+      return snapshot;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Drive senkronu alınamadı.");
       return null;
     }
   },

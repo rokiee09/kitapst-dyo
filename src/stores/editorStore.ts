@@ -139,6 +139,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       set({ pendingTimers, saveStatus: "saved", saveError: null });
       void useWorkspaceStore.getState().refreshStats();
+      void useWorkspaceStore.getState().pushDriveSync();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Kaydetme hatası";
       set({ saveStatus: "error", saveError: message });

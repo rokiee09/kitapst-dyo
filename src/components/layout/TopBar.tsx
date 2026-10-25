@@ -1,4 +1,4 @@
-import { BookOpen, Download, Eye, FileInput, FolderOpen, Library, Plus, Save, Settings, SpellCheck } from "lucide-react";
+import { BookOpen, Cloud, Download, Eye, FileInput, FolderOpen, Library, Plus, Save, Settings, SpellCheck } from "lucide-react";
 import { toast } from "sonner";
 import { tr } from "@/i18n/tr";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { importWordIntoChapter } from "@/features/import/importWord";
 
 export function TopBar() {
   const book = useWorkspaceStore((state) => state.book);
+  const driveSync = useWorkspaceStore((state) => state.driveSync);
   const versions = useWorkspaceStore((state) => state.versions);
   const createChapter = useWorkspaceStore((state) => state.createChapter);
   const setView = useUiStore((state) => state.setView);
@@ -80,6 +81,17 @@ export function TopBar() {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {driveSync?.enabled ? (
+          <button
+            type="button"
+            className="hidden items-center gap-1.5 text-xs text-emerald-300 md:flex"
+            onClick={() => setView("settings")}
+            title={driveSync.folderPath || "Drive senkronu açık"}
+          >
+            <Cloud size={14} />
+            Drive canlı
+          </button>
+        ) : null}
         <VersionMenu />
         <span className="hidden text-xs text-[#8aa0b8] lg:inline">v{latest}</span>
         <Button size="sm" variant="secondary" onClick={openProofread}>

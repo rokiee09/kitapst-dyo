@@ -112,6 +112,12 @@ async function dispatch(command: string, args: Record<string, unknown>): Promise
       return pushDriveSync();
     case "pull_drive_sync":
       return pullDriveSync();
+    case "poll_drive_sync":
+      return {
+        changed: false,
+        settings: getDriveSync(),
+        snapshot: null,
+      };
     case "list_notes":
       return [...current().notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     case "upsert_note":
@@ -1102,14 +1108,28 @@ const DRIVE_KEY = "kitap-studiosu-drive-sync";
 function getDriveSync() {
   try {
     const raw = localStorage.getItem(DRIVE_KEY);
-    if (raw) return JSON.parse(raw) as {
-      enabled: boolean;
-      folderPath: string;
-      machineId: string;
-      lastPushAt: string | null;
-      lastPullAt: string | null;
-      warning: string | null;
-    };
+    if (raw) {
+      const parsed = JSON.parse(raw) as {
+        enabled?: boolean;
+        folderPath?: string;
+        machineId?: string;
+        lastPushAt?: string | null;
+        lastPullAt?: string | null;
+        lastAppliedRemoteAt?: string | null;
+        remoteSlug?: string;
+        warning?: string | null;
+      };
+      return {
+        enabled: Boolean(parsed.enabled),
+        folderPath: parsed.folderPath ?? "",
+        machineId: parsed.machineId || crypto.randomUUID(),
+        lastPushAt: parsed.lastPushAt ?? null,
+        lastPullAt: parsed.lastPullAt ?? null,
+        lastAppliedRemoteAt: parsed.lastAppliedRemoteAt ?? null,
+        remoteSlug: parsed.remoteSlug ?? "",
+        warning: parsed.warning ?? null,
+      };
+    }
   } catch {
     // ignore
   }
@@ -1119,6 +1139,8 @@ function getDriveSync() {
     machineId: crypto.randomUUID(),
     lastPushAt: null,
     lastPullAt: null,
+    lastAppliedRemoteAt: null,
+    remoteSlug: "",
     warning: null as string | null,
   };
 }

@@ -20,7 +20,17 @@ pub struct DriveSyncSettings {
     pub machine_id: String,
     pub last_push_at: Option<String>,
     pub last_pull_at: Option<String>,
+    pub last_applied_remote_at: Option<String>,
+    pub remote_slug: String,
     pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrivePollResult {
+    pub changed: bool,
+    pub settings: DriveSyncSettings,
+    pub snapshot: Option<WorkspaceSnapshot>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,6 +48,14 @@ struct SyncLock {
     machine_id: String,
     updated_at: String,
     book_title: String,
+}
+
+enum PullOutcome {
+    Unchanged(Option<String>),
+    Updated {
+        warning: Option<String>,
+        remote_updated_at: String,
+    },
 }
 
 #[tauri::command]
@@ -74,6 +92,25 @@ pub fn set_drive_sync_settings(
     settings.warning = None;
     save_settings(&app, &settings)?;
     if settings.enabled {
+        match pull_current(&app, &state, &settings) {
+            Ok(PullOutcome::Updated {
+                warning,
+                remote_updated_at,
+            }) => {
+                settings.last_pull_at = Some(database::now());
+                settings.last_applied_remote_at = Some(remote_updated_at);
+                settings.warning = warning;
+                save_settings(&app, &settings)?;
+            }
+            Ok(PullOutcome::Unchanged(warning)) => {
+                settings.warning = warning;
+                save_settings(&app, &settings)?;
+            }
+            Err(err) => {
+                settings.warning = Some(err.to_string());
+                save_settings(&app, &settings)?;
+            }
+        }
         match push_current(&app, &state, &settings) {
             Ok(next) => return Ok(next),
             Err(err) => {
@@ -106,6 +143,58 @@ pub fn pull_drive_sync(
     crate::commands::workspace_snapshot(&state)
 }
 
+#[tauri::command]
+pub fn poll_drive_sync(
+    app: AppHandle,
+    state: tauri::State<AppState>,
+) -> Result<DrivePollResult, AppError> {
+    let mut settings = load_settings(&app)?;
+    if !settings.enabled || settings.folder_path.trim().is_empty() {
+        return Ok(DrivePollResult {
+            changed: false,
+            settings,
+            snapshot: None,
+        });
+    }
+    match pull_current(&app, &state, &settings) {
+        Ok(PullOutcome::Updated {
+            warning,
+            remote_updated_at,
+        }) => {
+            settings.last_pull_at = Some(database::now());
+            settings.last_applied_remote_at = Some(remote_updated_at);
+            settings.warning = warning;
+            save_settings(&app, &settings)?;
+            let snapshot = crate::commands::workspace_snapshot(&state)?;
+            Ok(DrivePollResult {
+                changed: true,
+                settings,
+                snapshot: Some(snapshot),
+            })
+        }
+        Ok(PullOutcome::Unchanged(warning)) => {
+            if settings.warning != warning {
+                settings.warning = warning;
+                let _ = save_settings(&app, &settings);
+            }
+            Ok(DrivePollResult {
+                changed: false,
+                settings,
+                snapshot: None,
+            })
+        }
+        Err(err) => {
+            settings.warning = Some(err.to_string());
+            let _ = save_settings(&app, &settings);
+            Ok(DrivePollResult {
+                changed: false,
+                settings,
+                snapshot: None,
+            })
+        }
+    }
+}
+
 pub fn try_pull_on_load(app: &AppHandle, state: &AppState) {
     let Ok(mut settings) = load_settings(app) else {
         return;
@@ -114,8 +203,16 @@ pub fn try_pull_on_load(app: &AppHandle, state: &AppState) {
         return;
     }
     match pull_current(app, state, &settings) {
-        Ok(warning) => {
+        Ok(PullOutcome::Updated {
+            warning,
+            remote_updated_at,
+        }) => {
             settings.last_pull_at = Some(database::now());
+            settings.last_applied_remote_at = Some(remote_updated_at);
+            settings.warning = warning;
+            let _ = save_settings(app, &settings);
+        }
+        Ok(PullOutcome::Unchanged(warning)) => {
             settings.warning = warning;
             let _ = save_settings(app, &settings);
         }
@@ -132,64 +229,64 @@ fn push_current(
     settings: &DriveSyncSettings,
 ) -> Result<DriveSyncSettings, AppError> {
     let root = state.project_root()?;
-    {
-        let conn = state.db()?;
-        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-    }
     let book = {
         let conn = state.db()?;
         database::get_book(&conn)?
     };
-    let slug = folder_slug(&book.title);
-    let remote = PathBuf::from(settings.folder_path.trim()).join(slug);
+    let mut next = settings.clone();
+    if next.remote_slug.trim().is_empty() {
+        next.remote_slug = folder_slug(&book.title);
+    }
+    let remote = resolve_remote_dir(&next, &book.title);
     fs::create_dir_all(&remote)?;
 
-    let warning = conflict_warning(&remote, &settings.machine_id, &book.title);
-
-    copy_file_if_exists(&root.join("project.sqlite"), &remote.join("project.sqlite"))?;
+    {
+        let conn = state.db()?;
+        export_sqlite_to_drive(&conn, &root, &remote.join("project.sqlite"))?;
+    }
     copy_file_if_exists(&root.join("project.json"), &remote.join("project.json"))?;
     copy_dir_replace(&root.join("assets"), &remote.join("assets"))?;
 
     let meta = SyncMeta {
         book_title: book.title.clone(),
         updated_at: database::now(),
-        machine_id: settings.machine_id.clone(),
-        project_slug: folder_slug(&book.title),
+        machine_id: next.machine_id.clone(),
+        project_slug: next.remote_slug.clone(),
     };
     fs::write(
         remote.join("sync-meta.json"),
         serde_json::to_vec_pretty(&meta)?,
     )?;
-    write_lock(&remote, &settings.machine_id, &book.title)?;
+    write_lock(&remote, &next.machine_id, &book.title)?;
 
-    let mut next = settings.clone();
-    next.last_push_at = Some(meta.updated_at);
+    let warning = conflict_warning(&remote, &next.machine_id, &book.title);
+    next.last_push_at = Some(meta.updated_at.clone());
+    next.last_applied_remote_at = Some(meta.updated_at);
     next.warning = warning;
     save_settings(app, &next)?;
     Ok(next)
 }
 
 fn pull_current(
-    app: &AppHandle,
+    _app: &AppHandle,
     state: &AppState,
     settings: &DriveSyncSettings,
-) -> Result<Option<String>, AppError> {
+) -> Result<PullOutcome, AppError> {
     let root = state.project_root()?;
     let book = {
         let conn = state.db()?;
         database::get_book(&conn)?
     };
-    let remote = PathBuf::from(settings.folder_path.trim()).join(folder_slug(&book.title));
+    let remote = resolve_remote_dir(settings, &book.title);
     let remote_sqlite = remote.join("project.sqlite");
     if !remote_sqlite.is_file() {
-        return Ok(None);
+        return Ok(PullOutcome::Unchanged(None));
     }
 
+    let meta = read_meta(&remote);
     let warning = conflict_warning(&remote, &settings.machine_id, &book.title);
-    let remote_mtime = file_mtime(&remote_sqlite)?;
-    let local_mtime = file_mtime(&root.join("project.sqlite")).unwrap_or(0);
-    if remote_mtime <= local_mtime {
-        return Ok(warning);
+    if !should_pull(settings, meta.as_ref()) {
+        return Ok(PullOutcome::Unchanged(warning));
     }
 
     {
@@ -201,6 +298,14 @@ fn pull_current(
     let _ = fs::remove_file(root.join("project.sqlite-wal"));
     let _ = fs::remove_file(root.join("project.sqlite-shm"));
     fs::copy(&remote_sqlite, root.join("project.sqlite"))?;
+    copy_file_if_exists(
+        &remote.join("project.sqlite-wal"),
+        &root.join("project.sqlite-wal"),
+    )?;
+    copy_file_if_exists(
+        &remote.join("project.sqlite-shm"),
+        &root.join("project.sqlite-shm"),
+    )?;
     if remote.join("project.json").is_file() {
         fs::copy(remote.join("project.json"), root.join("project.json"))?;
     }
@@ -213,11 +318,118 @@ fn pull_current(
         let mut conn = state.db()?;
         *conn = new_conn;
     }
-    filesystem::remember_project(app, &root)?;
+    filesystem::remember_project(_app, &root)?;
     write_lock(&remote, &settings.machine_id, &book.title)?;
-    Ok(warning.or_else(|| {
-        Some("Drive klasöründen daha yeni kitap içeriği alındı.".to_string())
-    }))
+    let remote_updated_at = meta
+        .map(|item| item.updated_at)
+        .unwrap_or_else(database::now);
+    Ok(PullOutcome::Updated {
+        warning: warning.or_else(|| {
+            Some("Drive klasöründen daha yeni kitap içeriği alındı.".to_string())
+        }),
+        remote_updated_at,
+    })
+}
+
+fn should_pull(settings: &DriveSyncSettings, meta: Option<&SyncMeta>) -> bool {
+    let Some(meta) = meta else {
+        return false;
+    };
+    if meta.machine_id == settings.machine_id {
+        return false;
+    }
+    match &settings.last_applied_remote_at {
+        Some(applied) => meta.updated_at > *applied,
+        None => true,
+    }
+}
+
+fn resolve_remote_dir(settings: &DriveSyncSettings, book_title: &str) -> PathBuf {
+    let base = PathBuf::from(settings.folder_path.trim());
+    let mut names = Vec::new();
+    if !settings.remote_slug.trim().is_empty() {
+        names.push(settings.remote_slug.trim().to_string());
+    }
+    let slug = folder_slug(book_title);
+    if !names.iter().any(|name| name == &slug) {
+        names.push(slug.clone());
+    }
+    for name in &names {
+        let dir = base.join(name);
+        if dir.join("sync-meta.json").is_file() || dir.join("project.sqlite").is_file() {
+            return dir;
+        }
+    }
+    if let Ok(entries) = fs::read_dir(&base) {
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            if let Some(meta) = read_meta(&dir) {
+                if meta.book_title == book_title || folder_slug(&meta.book_title) == slug {
+                    return dir;
+                }
+            }
+        }
+    }
+    base.join(names.into_iter().next().unwrap_or(slug))
+}
+
+fn read_meta(remote: &Path) -> Option<SyncMeta> {
+    let raw = fs::read_to_string(remote.join("sync-meta.json")).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn export_sqlite_to_drive(
+    conn: &Connection,
+    root: &Path,
+    dest: &Path,
+) -> Result<(), AppError> {
+    let tmp = root.join(".drive-project.sqlite");
+    let _ = fs::remove_file(&tmp);
+    let quoted = tmp.to_string_lossy().replace('\'', "''");
+    match conn.execute_batch(&format!("VACUUM INTO '{quoted}';")) {
+        Ok(()) => {
+            copy_replace(&tmp, dest)?;
+            let _ = fs::remove_file(&tmp);
+            let _ = fs::remove_file(sidecar(dest, "-wal"));
+            let _ = fs::remove_file(sidecar(dest, "-shm"));
+            Ok(())
+        }
+        Err(err) => {
+            eprintln!("[kitap-studiosu] VACUUM INTO başarısız, WAL kopyalanacak: {err}");
+            let _ = conn.execute_batch("PRAGMA wal_checkpoint(FULL);");
+            copy_file_if_exists(&root.join("project.sqlite"), dest)?;
+            copy_file_if_exists(&root.join("project.sqlite-wal"), &sidecar(dest, "-wal"))?;
+            copy_file_if_exists(&root.join("project.sqlite-shm"), &sidecar(dest, "-shm"))?;
+            let _ = fs::remove_file(&tmp);
+            Ok(())
+        }
+    }
+}
+
+fn sidecar(sqlite: &Path, suffix: &str) -> PathBuf {
+    let mut name = sqlite
+        .file_name()
+        .map(|value| value.to_os_string())
+        .unwrap_or_else(|| "project.sqlite".into());
+    name.push(suffix);
+    sqlite.with_file_name(name)
+}
+
+fn copy_replace(from: &Path, to: &Path) -> Result<(), AppError> {
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let staging = sidecar(to, ".tmp");
+    fs::copy(from, &staging)?;
+    if let Err(err) = fs::rename(&staging, to) {
+        fs::copy(&staging, to)?;
+        let _ = fs::remove_file(&staging);
+        let _ = err;
+    }
+    Ok(())
 }
 
 fn conflict_warning(remote: &Path, machine_id: &str, book_title: &str) -> Option<String> {
@@ -266,6 +478,8 @@ fn load_settings(app: &AppHandle) -> Result<DriveSyncSettings, AppError> {
     let mut machine_id = String::new();
     let mut last_push_at = None;
     let mut last_pull_at = None;
+    let mut last_applied_remote_at = None;
+    let mut remote_slug = String::new();
     let mut warning = None;
     if path.exists() {
         let raw = fs::read_to_string(&path)?;
@@ -292,6 +506,15 @@ fn load_settings(app: &AppHandle) -> Result<DriveSyncSettings, AppError> {
                 .get("driveLastPullAt")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
+            last_applied_remote_at = value
+                .get("driveLastAppliedRemoteAt")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            remote_slug = value
+                .get("driveRemoteSlug")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             warning = value
                 .get("driveWarning")
                 .and_then(|v| v.as_str())
@@ -306,6 +529,8 @@ fn load_settings(app: &AppHandle) -> Result<DriveSyncSettings, AppError> {
             machine_id: machine_id.clone(),
             last_push_at: last_push_at.clone(),
             last_pull_at: last_pull_at.clone(),
+            last_applied_remote_at: last_applied_remote_at.clone(),
+            remote_slug: remote_slug.clone(),
             warning: warning.clone(),
         };
         save_settings(app, &settings)?;
@@ -317,6 +542,8 @@ fn load_settings(app: &AppHandle) -> Result<DriveSyncSettings, AppError> {
         machine_id,
         last_push_at,
         last_pull_at,
+        last_applied_remote_at,
+        remote_slug,
         warning,
     })
 }
@@ -360,6 +587,17 @@ fn save_settings(app: &AppHandle, settings: &DriveSyncSettings) -> Result<(), Ap
             Some(v) => serde_json::Value::String(v.clone()),
             None => serde_json::Value::Null,
         },
+    );
+    obj.insert(
+        "driveLastAppliedRemoteAt".into(),
+        match &settings.last_applied_remote_at {
+            Some(v) => serde_json::Value::String(v.clone()),
+            None => serde_json::Value::Null,
+        },
+    );
+    obj.insert(
+        "driveRemoteSlug".into(),
+        serde_json::Value::String(settings.remote_slug.clone()),
     );
     obj.insert(
         "driveWarning".into(),
@@ -406,15 +644,6 @@ fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), AppError> {
         }
     }
     Ok(())
-}
-
-fn file_mtime(path: &Path) -> Result<u64, AppError> {
-    let meta = fs::metadata(path)?;
-    Ok(meta
-        .modified()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs())
 }
 
 fn folder_slug(name: &str) -> String {

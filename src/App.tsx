@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { DriveLiveSync } from "@/features/settings/DriveLiveSync";
 import { useEditorStore } from "@/stores/editorStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 
@@ -14,5 +15,10 @@ export default function App() {
     });
   }, [load]);
 
-  return <AppShell />;
+  return (
+    <>
+      <DriveLiveSync />
+      <AppShell />
+    </>
+  );
 }

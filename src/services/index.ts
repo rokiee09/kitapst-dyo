@@ -14,7 +14,15 @@ export interface DriveSyncSettings {
   machineId: string;
   lastPushAt: string | null;
   lastPullAt: string | null;
+  lastAppliedRemoteAt: string | null;
+  remoteSlug: string;
   warning: string | null;
+}
+
+export interface DrivePollResult {
+  changed: boolean;
+  settings: DriveSyncSettings;
+  snapshot: WorkspaceSnapshot | null;
 }
 
 export const projectService = {
@@ -47,6 +55,9 @@ export const projectService = {
   },
   pullDriveSync(): Promise<WorkspaceSnapshot> {
     return invokeCommand("pull_drive_sync");
+  },
+  pollDriveSync(): Promise<DrivePollResult> {
+    return invokeCommand("poll_drive_sync");
   },
 };
 

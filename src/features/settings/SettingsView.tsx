@@ -94,6 +94,7 @@ function DriveSyncCard() {
         setSettings(next);
         setFolderPath(next.folderPath);
         setEnabled(next.enabled);
+        useWorkspaceStore.setState({ driveSync: next });
       })
       .catch(() => undefined);
   }, []);
@@ -105,6 +106,7 @@ function DriveSyncCard() {
       setSettings(saved);
       setEnabled(saved.enabled);
       setFolderPath(saved.folderPath);
+      useWorkspaceStore.setState({ driveSync: saved });
       if (saved.warning) toast.message(saved.warning);
       else toast.success(saved.enabled ? "Drive senkronu açıldı ve kitap yedeklendi." : "Drive senkronu kapandı.");
     } catch (error) {
@@ -118,9 +120,9 @@ function DriveSyncCard() {
     <div className="rounded-lg border border-[#1c2a44] bg-[#070b14] p-4">
       <h2 className="mb-2 font-medium">Çoklu çalışma (Drive klasörü)</h2>
       <p className="mb-3 text-sm text-[#8aa0bd]">
-        Kaydettiğin kitap (metin, görsel, video) seçtiğin Google Drive klasörüne yazılır. Başka
-        bilgisayarda aynı Drive klasörünü seçen kullanıcı uygulamayı açınca güncel içeriği görür.
-        Aynı anda iki kişi düzenlemesin; son kayıt geçerli olur.
+        Google Drive masaüstü uygulamasındaki paylaşılan klasörü seçin. Kayıt Drive’a yazılır;
+        açıkken uygulama her 8 saniyede klasörü kontrol eder ve diğer bilgisayardaki güncellemeyi
+        kitaba yansıtır. Aynı anda iki kişi yazmasın; son kayıt geçerli olur.
       </p>
       <div className="space-y-3">
         <label className="flex items-center gap-2 text-sm">
@@ -133,7 +135,7 @@ function DriveSyncCard() {
               if (!next) void save(false, folderPath);
             }}
           />
-          Drive klasörüne otomatik yedekle
+          Drive klasörüne canlı yedekle
         </label>
         <div>
           <Label htmlFor="drive-path">Paylaşılan klasör</Label>
@@ -172,6 +174,7 @@ function DriveSyncCard() {
                   await useEditorStore.getState().flushSave();
                   const next = await projectService.pushDriveSync();
                   setSettings(next);
+                  useWorkspaceStore.setState({ driveSync: next });
                   if (next.warning) toast.message(next.warning);
                   else toast.success("Drive klasörüne yazıldı.");
                 } catch (error) {
@@ -205,8 +208,16 @@ function DriveSyncCard() {
             Drive’dan al
           </Button>
         </div>
+        {settings?.enabled ? (
+          <p className="text-xs text-emerald-300">Canlı senkron açık. Üst çubukta “Drive canlı” görünür.</p>
+        ) : (
+          <p className="text-xs text-[#8aa0bd]">Canlı senkron kapalı. Klasör seçip kaydedin.</p>
+        )}
         {settings?.lastPushAt ? (
-          <p className="text-xs text-[#8aa0bd]">Son yedek: {new Date(settings.lastPushAt).toLocaleString("tr-TR")}</p>
+          <p className="text-xs text-[#8aa0bd]">Son yazma: {new Date(settings.lastPushAt).toLocaleString("tr-TR")}</p>
+        ) : null}
+        {settings?.lastPullAt ? (
+          <p className="text-xs text-[#8aa0bd]">Son alma: {new Date(settings.lastPullAt).toLocaleString("tr-TR")}</p>
         ) : null}
         {settings?.warning ? <p className="text-xs text-amber-300">{settings.warning}</p> : null}
       </div>

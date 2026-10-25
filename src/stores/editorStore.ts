@@ -86,6 +86,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ).sort((a, b) => a.order - b.order);
       set({ blocks: unique, selectedBlockId: created.id, saveStatus: "saved" });
       void useWorkspaceStore.getState().refreshStats();
+      void useWorkspaceStore.getState().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Blok eklenemedi.");
     }
@@ -157,6 +158,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         selectedBlockId: blocks[0]?.id ?? null,
       });
       void useWorkspaceStore.getState().refreshStats();
+      void useWorkspaceStore.getState().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Blok silinemedi.");
     }
@@ -168,6 +170,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const copy = await blockService.duplicate(id);
       const blocks = [...get().blocks, copy].sort((a, b) => a.order - b.order);
       set({ blocks, selectedBlockId: copy.id });
+      void useWorkspaceStore.getState().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Blok kopyalanamadı.");
     }
@@ -186,6 +189,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       const saved = await blockService.reorder(chapterId, orderedIds);
       set({ blocks: saved, saveStatus: "saved" });
+      void useWorkspaceStore.getState().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Blok sırası güncellenemedi.");
     }

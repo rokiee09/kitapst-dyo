@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { create } from "zustand";
 import { chapterService, projectService, statsService, versionService, bookService } from "@/services";
+import type { DriveSyncSettings } from "@/services";
 import type {
   Book,
   BookStats,
@@ -11,6 +12,9 @@ import type {
   ProjectSettings,
   WorkspaceSnapshot,
 } from "@/types/domain";
+
+const DRIVE_POLL_MS = 8000;
+let drivePollInFlight = false;
 
 interface WorkspaceState {
   loaded: boolean;
@@ -58,6 +62,10 @@ interface WorkspaceState {
   applySnapshot: (snapshot: WorkspaceSnapshot) => void;
   createLibraryBook: (title: string) => Promise<WorkspaceSnapshot | null>;
   openLibraryBook: (path: string) => Promise<WorkspaceSnapshot | null>;
+  driveSync: DriveSyncSettings | null;
+  refreshDriveSync: () => Promise<void>;
+  startDriveLiveSync: () => () => void;
+  pollDriveLive: () => Promise<void>;
   pushDriveSync: () => Promise<void>;
   pullDriveSync: () => Promise<WorkspaceSnapshot | null>;
 }
@@ -74,6 +82,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   versions: [],
   stats: null,
   selectedChapterId: null,
+  driveSync: null,
 
   load: async () => {
     set({ loading: true, error: null });
@@ -138,6 +147,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({
         chapters: get().chapters.map((chapter) => (chapter.id === id ? updated : chapter)),
       });
+      void get().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Bölüm yeniden adlandırılamadı.");
     }
@@ -152,6 +162,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         selectedChapterId: snapshot.selectedChapterId,
         stats: snapshot.stats,
       });
+      void get().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Bölüm silinemedi.");
     }
@@ -162,6 +173,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const copy = await chapterService.duplicate(id);
       set({ chapters: [...get().chapters, copy] });
       await get().refreshStats();
+      void get().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Bölüm kopyalanamadı.");
     }
@@ -171,6 +183,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const chapters = await chapterService.move(id, direction);
       set({ chapters });
+      void get().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Bölüm taşınamadı.");
     }
@@ -180,6 +193,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const chapters = await chapterService.reorder(parentId, orderedIds);
       set({ chapters });
+      void get().pushDriveSync();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Bölüm sırası güncellenemedi.");
     }
@@ -200,6 +214,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const book = await bookService.update(payload);
       set({ book });
+      void get().pushDriveSync();
       if (!options?.silent) toast.success("Kitap bilgileri kaydedildi.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Kitap bilgileri kaydedilemedi.");
@@ -276,9 +291,68 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  refreshDriveSync: async () => {
+    try {
+      const settings = await projectService.getDriveSync();
+      set({ driveSync: settings });
+    } catch {
+      // Ayar okunamazsa canlı senkron bekler.
+    }
+  },
+
+  startDriveLiveSync: () => {
+    void get().refreshDriveSync();
+    const handle = window.setInterval(() => {
+      void get().pollDriveLive();
+    }, DRIVE_POLL_MS);
+    return () => window.clearInterval(handle);
+  },
+
+  pollDriveLive: async () => {
+    if (drivePollInFlight) return;
+    const settings = get().driveSync;
+    if (settings && !settings.enabled) return;
+    const { useEditorStore } = await import("@/stores/editorStore");
+    const editor = useEditorStore.getState();
+    if (editor.saveStatus !== "saved") return;
+    if (Object.keys(editor.pendingTimers).length > 0) return;
+    drivePollInFlight = true;
+    try {
+      const result = await projectService.pollDriveSync();
+      set({ driveSync: result.settings });
+      if (!result.changed || !result.snapshot) return;
+      const currentId = get().selectedChapterId;
+      get().applySnapshot(result.snapshot);
+      const keepId =
+        currentId && result.snapshot.chapters.some((chapter) => chapter.id === currentId)
+          ? currentId
+          : result.snapshot.selectedChapterId;
+      const applyBlocks = (blocks: typeof result.snapshot.selectedBlocks) => {
+        const selectedId = editor.selectedBlockId;
+        useEditorStore.getState().setBlocks(blocks);
+        if (selectedId && blocks.some((block) => block.id === selectedId)) {
+          useEditorStore.getState().selectBlock(selectedId);
+        }
+      };
+      if (keepId && keepId !== result.snapshot.selectedChapterId) {
+        const blocks = await chapterService.setActive(keepId);
+        set({ selectedChapterId: keepId });
+        applyBlocks(blocks);
+      } else {
+        applyBlocks(result.snapshot.selectedBlocks);
+      }
+      toast.success("Drive’dan canlı güncelleme alındı.");
+    } catch {
+      // Drive kapalıysa veya klasör henüz inmediyse sessiz geç.
+    } finally {
+      drivePollInFlight = false;
+    }
+  },
+
   pushDriveSync: async () => {
     try {
       const settings = await projectService.pushDriveSync();
+      set({ driveSync: settings });
       if (settings.warning) toast.message(settings.warning);
     } catch {
       // Drive kapalıysa veya klasör yoksa sessiz geç.
@@ -289,6 +363,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const snapshot = await projectService.pullDriveSync();
       get().applySnapshot(snapshot);
+      await get().refreshDriveSync();
       return snapshot;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Drive senkronu alınamadı.");

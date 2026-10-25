@@ -82,6 +82,7 @@ pub fn run() {
             sync::set_drive_sync_settings,
             sync::push_drive_sync,
             sync::pull_drive_sync,
+            sync::poll_drive_sync,
         ])
         .run(tauri::generate_context!())
         .expect("Kitap Stüdyosu başlatılamadı.");

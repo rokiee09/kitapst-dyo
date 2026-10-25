@@ -87,6 +87,7 @@ pub fn open_library_book(
         ));
     }
     switch_project(&state, &app, root, None)?;
+    crate::sync::try_pull_on_load(&app, &state);
     commands::workspace_snapshot(&state)
 }
 

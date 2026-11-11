@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, GripVertical, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, GripVertical, Search, Trash2 } from "lucide-react";
 import { tr } from "@/i18n/tr";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -16,13 +16,10 @@ import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { buildChapterTree, displayChapterLabel, type ChapterNode } from "@/utils/chapterTree";
 import { PageSheetNav } from "@/features/chapters/PageSheetNav";
-import { BookPageInsertButtons } from "@/features/templates/BookPageInsertButtons";
-import { chapterService } from "@/services";
 
 export function ChapterTree() {
   const chapters = useWorkspaceStore((state) => state.chapters);
   const selectedChapterId = useWorkspaceStore((state) => state.selectedChapterId);
-  const createChapter = useWorkspaceStore((state) => state.createChapter);
   const [query, setQuery] = useState("");
   const tree = useMemo(() => filterChapterTree(buildChapterTree(chapters), query), [chapters, query]);
 
@@ -30,26 +27,6 @@ export function ChapterTree() {
     <div className="flex h-full flex-col bg-[#0c1829]">
       <div className="flex items-center gap-2 px-3 py-2">
         <h2 className="flex-1 text-xs font-semibold tracking-wide text-[#8aa0b8]">{tr.chapter.title}</h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={tr.chapter.new}
-          onClick={() => {
-            void (async () => {
-              const chapter = await createChapter(null);
-              if (chapter) {
-                const blocks = await chapterService.setActive(chapter.id);
-                useEditorStore.getState().setBlocks(blocks);
-              }
-            })();
-          }}
-        >
-          <Plus size={14} />
-        </Button>
-      </div>
-      <div className="px-3 pb-2">
-        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#8aa0b8]">Kitap sayfaları</p>
-        <BookPageInsertButtons compact />
       </div>
       <div className="px-3 pb-2">
         <div className="relative">

@@ -1,4 +1,4 @@
-import { BookOpen, Cloud, Download, Eye, FileInput, FolderOpen, Library, Plus, Save, Settings, SpellCheck } from "lucide-react";
+import { BookOpen, Cloud, Download, Eye, FileInput, FolderOpen, Library, Plus, Save, Settings, Smartphone, SpellCheck, Tablet } from "lucide-react";
 import { toast } from "sonner";
 import { tr } from "@/i18n/tr";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,9 @@ import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { chapterService, folderService } from "@/services";
 import { importWordIntoChapter } from "@/features/import/importWord";
+import { addBookPage } from "@/features/templates/addBookPage";
+import { BOOK_PAGE_STRUCTURES, type BookPageStructureId } from "@/features/templates/bookPages";
+import type { ReactNode } from "react";
 
 export function TopBar() {
   const book = useWorkspaceStore((state) => state.book);
@@ -17,7 +20,9 @@ export function TopBar() {
   const createChapter = useWorkspaceStore((state) => state.createChapter);
   const setView = useUiStore((state) => state.setView);
   const previewing = useUiStore((state) => state.previewing);
+  const previewMode = useUiStore((state) => state.previewMode);
   const togglePreview = useUiStore((state) => state.togglePreview);
+  const setPreviewMode = useUiStore((state) => state.setPreviewMode);
   const openProofread = useUiStore((state) => state.openProofread);
   const initials = initialsFrom(book?.author || book?.title || "KS");
   const latest = versions[0]?.version ?? "1.0.0";
@@ -78,6 +83,18 @@ export function TopBar() {
             <Download size={14} />
             Dışa Aktar
           </Button>
+          <span className="mx-1 h-5 w-px bg-[#1c314c]" />
+          {BOOK_PAGE_STRUCTURES.map((page) => (
+            <Button
+              key={page.id}
+              size="sm"
+              variant="secondary"
+              title={page.hint}
+              onClick={() => void addBookPage(page.id as BookPageStructureId)}
+            >
+              {page.title}
+            </Button>
+          ))}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -106,6 +123,27 @@ export function TopBar() {
           <Eye size={14} />
           {previewing ? "Önizleme açık" : "Önizleme"}
         </Button>
+        <PreviewModeButton
+          active={previewing && previewMode === "book"}
+          label="Kitap"
+          onClick={() => setPreviewMode("book")}
+        >
+          <BookOpen size={14} />
+        </PreviewModeButton>
+        <PreviewModeButton
+          active={previewing && previewMode === "tablet"}
+          label="Tablet"
+          onClick={() => setPreviewMode("tablet")}
+        >
+          <Tablet size={14} />
+        </PreviewModeButton>
+        <PreviewModeButton
+          active={previewing && previewMode === "phone"}
+          label="Telefon"
+          onClick={() => setPreviewMode("phone")}
+        >
+          <Smartphone size={14} />
+        </PreviewModeButton>
         <SaveStatusBadge />
         <Button size="icon" variant="ghost" onClick={() => setView("settings")} aria-label="Ayarlar">
           <Settings size={16} />
@@ -115,6 +153,25 @@ export function TopBar() {
         </div>
       </div>
     </header>
+  );
+}
+
+function PreviewModeButton({
+  active,
+  label,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button size="sm" variant={active ? "default" : "secondary"} title={label} onClick={onClick}>
+      {children}
+      {label}
+    </Button>
   );
 }
 

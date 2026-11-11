@@ -4,17 +4,12 @@ import {
   FileCode2,
   FileText,
   Moon,
-  Pencil,
   Smartphone,
-  Tablet,
 } from "lucide-react";
 import { runBookExport } from "@/features/export/runExport";
-import { tr } from "@/i18n/tr";
 import { cn } from "@/lib/utils";
-import { VersionMenu } from "@/features/versions/VersionMenu";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import type { PreviewMode } from "@/types/domain";
 
 const EXPORTS = [
   { id: "epub", label: "EPUB", hint: "e-kitap", color: "bg-emerald-600 hover:bg-emerald-500", enabled: true },
@@ -24,17 +19,7 @@ const EXPORTS = [
   { id: "zip", label: "ZIP", hint: "Proje yedeği", color: "bg-cyan-600 hover:bg-cyan-500", enabled: true },
 ] as const;
 
-const MODES: { id: PreviewMode; label: string; icon: typeof BookOpen }[] = [
-  { id: "tablet", label: tr.preview.tablet, icon: Tablet },
-  { id: "phone", label: tr.preview.phone, icon: Smartphone },
-  { id: "book", label: tr.preview.book, icon: BookOpen },
-];
-
 export function BottomDock() {
-  const previewMode = useUiStore((state) => state.previewMode);
-  const previewing = useUiStore((state) => state.previewing);
-  const setPreviewMode = useUiStore((state) => state.setPreviewMode);
-  const exitPreview = useUiStore((state) => state.exitPreview);
   const paperDark = useUiStore((state) => state.paperDark);
   const togglePaperDark = useUiStore((state) => state.togglePaperDark);
   const stats = useWorkspaceStore((state) => state.stats);
@@ -76,41 +61,8 @@ export function BottomDock() {
       </section>
 
       <section className="min-w-0">
-        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8aa0b8]">Önizleme</h3>
+        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8aa0b8]">Görünüm</h3>
         <div className="flex items-start gap-2 overflow-x-auto">
-          <button
-            type="button"
-            onClick={exitPreview}
-            className={cn(
-              "flex w-[88px] flex-col items-center gap-1 rounded-lg border border-[#1c314c] bg-[#102038] p-2 text-[#9fb3c9] hover:bg-[#152844]",
-              !previewing && "border-blue-500 bg-[#163056] text-white",
-            )}
-          >
-            <div className="flex h-12 w-full items-center justify-center rounded bg-[#0b1524]">
-              <Pencil size={18} />
-            </div>
-            <span className="text-[10px]">Düzenle</span>
-          </button>
-          {MODES.map((mode) => {
-            const Icon = mode.icon;
-            const active = previewing && previewMode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => setPreviewMode(mode.id)}
-                className={cn(
-                  "flex w-[88px] flex-col items-center gap-1 rounded-lg border border-[#1c314c] bg-[#102038] p-2 text-[#9fb3c9] hover:bg-[#152844]",
-                  active && "border-blue-500 bg-[#163056] text-white",
-                )}
-              >
-                <div className="flex h-12 w-full items-center justify-center rounded bg-[#0b1524]">
-                  <Icon size={18} />
-                </div>
-                <span className="text-[10px]">{mode.label}</span>
-              </button>
-            );
-          })}
           <button
             type="button"
             onClick={togglePaperDark}
@@ -133,9 +85,6 @@ export function BottomDock() {
           <div className="text-lg font-bold">v{latest?.version ?? "1.0.0"}</div>
           <div className="mt-0.5 text-[10px] text-[#8aa0b8]">
             {latest?.createdAt ? formatStamp(latest.createdAt) : "Henüz sürüm kaydı yok"}
-          </div>
-          <div className="mt-2">
-            <VersionMenu />
           </div>
         </div>
       </section>

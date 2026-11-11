@@ -123,7 +123,7 @@ export function BlockCanvas({
 
   const useSheet = !previewing || previewMode === "book";
   const page = useSheet ? (
-    <BookSheet dark={dark} clip={previewing} showGuide={!previewing} style={paperStyle} footer={pageFooter}>
+    <BookSheet dark={dark} clip={previewing} fluid={!previewing} showGuide={!previewing} style={paperStyle} footer={pageFooter}>
       {inner}
     </BookSheet>
   ) : (
@@ -147,7 +147,7 @@ export function BlockCanvas({
       ) : previewing ? (
         page
       ) : (
-        <div className="flex justify-center px-8 py-8">{page}</div>
+        <div className="w-full px-3 py-6">{page}</div>
       )}
     </DeviceFrame>
   );

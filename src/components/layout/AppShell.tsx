@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { IconNav } from "@/components/layout/IconNav";
 import { BottomDock } from "@/components/layout/BottomDock";
 import { NotesView } from "@/features/notes/NotesView";
@@ -54,13 +55,16 @@ export function AppShell() {
         {!previewing ? <IconNav /> : null}
         {showEditorChrome && !leftCollapsed && !previewing ? (
           <>
-            <aside style={{ width: leftWidth }} className="min-w-[200px] max-w-[420px] shrink-0">
+            <aside
+              style={{ flexBasis: leftWidth }}
+              className="min-w-[120px] max-w-[240px] shrink-[4] grow-0 basis-0"
+            >
               <ChapterTree />
             </aside>
             <ResizeHandle value={leftWidth} onChange={setLeftWidth} />
           </>
         ) : null}
-        <main className="min-w-0 flex-1 bg-[#07111f]">
+        <main className="min-w-0 flex-[1_1_68%] bg-[#07111f]">
           {loading && !loaded ? (
             <div className="flex h-full items-center justify-center text-sm text-[#8aa0b8]">Yükleniyor…</div>
           ) : error && !loaded ? (
@@ -72,10 +76,35 @@ export function AppShell() {
         {showEditorChrome && !rightCollapsed && !previewing ? (
           <>
             <ResizeHandle value={rightWidth} onChange={setRightWidth} reverse />
-            <aside style={{ width: rightWidth }} className="min-w-[240px] max-w-[420px] shrink-0">
-              <RightPanel />
+            <aside
+              style={{ flexBasis: rightWidth }}
+              className="flex min-h-0 min-w-[140px] max-w-[280px] shrink-[4] grow-0 basis-0 flex-col"
+            >
+              <button
+                type="button"
+                title="Paneli kapat"
+                aria-label="Paneli kapat"
+                className="flex h-7 shrink-0 items-center justify-end gap-1 border-b border-[#1c314c] bg-[#0c1829] px-2 text-[11px] text-[#8aa0b8] hover:bg-[#163056] hover:text-white"
+                onClick={() => useUiStore.getState().toggleRight()}
+              >
+                Kapat
+                <PanelRightClose size={14} />
+              </button>
+              <div className="min-h-0 flex-1">
+                <RightPanel />
+              </div>
             </aside>
           </>
+        ) : showEditorChrome && rightCollapsed && !previewing ? (
+          <button
+            type="button"
+            title="Özellik panelini aç"
+            aria-label="Özellik panelini aç"
+            className="flex w-8 shrink-0 items-center justify-center border-l border-[#1c314c] bg-[#0c1829] text-[#8aa0b8] hover:bg-[#13233a] hover:text-white"
+            onClick={() => useUiStore.getState().toggleRight()}
+          >
+            <PanelRightOpen size={16} />
+          </button>
         ) : null}
       </div>
       {showEditorChrome && !previewing ? <BottomDock /> : null}

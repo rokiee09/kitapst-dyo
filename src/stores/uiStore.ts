@@ -33,8 +33,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   view: "book",
   leftCollapsed: false,
   rightCollapsed: false,
-  leftWidth: 268,
-  rightWidth: 320,
+  leftWidth: 232,
+  rightWidth: 280,
   previewMode: "book",
   previewing: false,
   collapsedChapterIds: [],
@@ -44,8 +44,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   setView: (view) => set({ view, previewing: view === "book" || view === "chapters" ? get().previewing : false }),
   toggleLeft: () => set({ leftCollapsed: !get().leftCollapsed }),
   toggleRight: () => set({ rightCollapsed: !get().rightCollapsed }),
-  setLeftWidth: (width) => set({ leftWidth: Math.min(420, Math.max(200, width)) }),
-  setRightWidth: (width) => set({ rightWidth: Math.min(420, Math.max(240, width)) }),
+  setLeftWidth: (width) => set({ leftWidth: Math.min(240, Math.max(140, width)) }),
+  setRightWidth: (width) => set({ rightWidth: Math.min(280, Math.max(160, width)) }),
   setPreviewMode: (previewMode) => set({ previewMode, previewing: true, view: "book" }),
   enterPreview: (mode) =>
     set({

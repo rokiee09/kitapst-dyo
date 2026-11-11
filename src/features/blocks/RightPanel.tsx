@@ -13,7 +13,7 @@ export function RightPanel() {
 
   return (
     <Tabs value={rightTab} onValueChange={(value) => setRightTab(value as typeof rightTab)} className="flex h-full flex-col bg-[#0c1829]">
-      <TabsList>
+      <TabsList className="pr-8">
         <TabsTrigger value="blocks">{tr.panels.blocks}</TabsTrigger>
         <TabsTrigger value="properties">{tr.panels.properties}</TabsTrigger>
         <TabsTrigger value="design">{tr.panels.design}</TabsTrigger>

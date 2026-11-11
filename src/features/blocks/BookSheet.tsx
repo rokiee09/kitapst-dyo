@@ -9,6 +9,7 @@ export function BookSheet({
   dark = false,
   clip = false,
   showGuide = true,
+  fluid = false,
   className,
   style,
   footer,
@@ -19,6 +20,7 @@ export function BookSheet({
   dark?: boolean;
   clip?: boolean;
   showGuide?: boolean;
+  fluid?: boolean;
   className?: string;
   style?: CSSProperties;
   footer?: ReactNode;
@@ -49,7 +51,7 @@ export function BookSheet({
   }, [children]);
 
   return (
-    <div className="relative mx-auto" style={{ width: BOOK_PAGE_WIDTH }}>
+    <div className={cn("relative", fluid ? "w-full" : "mx-auto")} style={fluid ? undefined : { width: BOOK_PAGE_WIDTH }}>
       {overflow ? (
         <div
           className={cn(
@@ -73,10 +75,10 @@ export function BookSheet({
           className,
         )}
         style={{
-          width: BOOK_PAGE_WIDTH,
+          width: fluid ? "100%" : BOOK_PAGE_WIDTH,
           height: BOOK_PAGE_HEIGHT,
           boxSizing: "border-box",
-          padding: "56px 64px 96px",
+          padding: fluid ? "40px 40px 72px" : "56px 64px 96px",
           ...style,
         }}
       >

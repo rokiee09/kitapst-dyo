@@ -5,7 +5,6 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
-  FileInput,
   ImageIcon,
   Italic,
   Link2,
@@ -24,7 +23,6 @@ import { useEditorStore } from "@/stores/editorStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { emptyDoc } from "@/utils/tiptap";
-import { importWordIntoChapter } from "@/features/import/importWord";
 import { PageNumberControls } from "@/features/editor/PageNumberControls";
 
 export function FormattingToolbar() {
@@ -246,17 +244,6 @@ export function FormattingToolbar() {
           </option>
         ))}
       </select>
-      <button
-        type="button"
-        title="Yazım ve basit hataları bul"
-        onClick={() => useUiStore.getState().openProofread()}
-        className="flex h-7 shrink-0 items-center rounded bg-amber-600/80 px-2 text-[11px] font-semibold text-white hover:bg-amber-500"
-      >
-        Denetle
-      </button>
-      <ToolButton label="Word’den içe aktar" onClick={() => void importWordIntoChapter()}>
-        <FileInput size={15} />
-      </ToolButton>
       <ToolButton label="Görsel" onClick={() => void useEditorStore.getState().addBlock("image")}>
         <ImageIcon size={15} />
       </ToolButton>

@@ -1,7 +1,6 @@
 import {
   AlertTriangle,
   Code2,
-  FileInput,
   FileText,
   Heading2,
   ImageIcon,
@@ -18,8 +17,6 @@ import {
 } from "lucide-react";
 import { tr } from "@/i18n/tr";
 import { cn } from "@/lib/utils";
-import { BookPageInsertButtons } from "@/features/templates/BookPageInsertButtons";
-import { importWordIntoChapter } from "@/features/import/importWord";
 import { useEditorStore } from "@/stores/editorStore";
 import type { BlockType } from "@/types/domain";
 
@@ -48,18 +45,6 @@ export function BlockPalette() {
     <div className="p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-[#8aa0b8]">İçerik Blokları</h3>
-      </div>
-      <button
-        type="button"
-        className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/40 bg-blue-600/15 px-2.5 py-2 text-[12px] text-blue-100 hover:bg-blue-600/25"
-        onClick={() => void importWordIntoChapter()}
-      >
-        <FileInput size={15} />
-        Word’den içe aktar
-      </button>
-      <div className="mb-3">
-        <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8aa0b8]">Kitap sayfaları</h3>
-        <BookPageInsertButtons compact />
       </div>
       <div className="grid grid-cols-2 gap-2">
         {ITEMS.map((item) => {

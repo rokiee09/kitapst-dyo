@@ -98,6 +98,24 @@ select {
   line-height: 1.25;
 }
 
+.book-page [data-block-font] .tiptap p,
+.book-page [data-block-font] .tiptap li,
+.book-page [data-block-font] .tiptap h1,
+.book-page [data-block-font] .tiptap h2,
+.book-page [data-block-font] .tiptap h3 {
+  font-size: inherit;
+}
+
+.book-page [data-spaced] .tiptap p,
+.book-page [data-spaced] .tiptap h1,
+.book-page [data-spaced] .tiptap h2,
+.book-page [data-spaced] .tiptap h3,
+.book-page [data-spaced] .tiptap ul,
+.book-page [data-spaced] .tiptap ol {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
 .book-page .tiptap ul,
 .book-page .tiptap ol {
   margin: 0 0 0.7em;

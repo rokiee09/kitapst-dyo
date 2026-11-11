@@ -167,6 +167,13 @@ export function blockBoxStyle(style: BlockStyle, free: boolean, type?: BlockType
   if (style.fontSize) css.fontSize = `${style.fontSize}px`;
   if (style.align) css.textAlign = style.align;
   if (style.lineHeight) css.lineHeight = style.lineHeight;
+  if (style.marginTop != null || style.marginBottom != null) {
+    css.marginTop = `${style.marginTop ?? 0}px`;
+    css.marginBottom = `${style.marginBottom ?? 0}px`;
+  }
+  if (style.marginLeft != null) css.marginLeft = `${style.marginLeft}px`;
+  if (style.marginRight != null) css.marginRight = `${style.marginRight}px`;
+  if (style.textIndent != null) css.textIndent = `${style.textIndent}px`;
   if (free) {
     css.position = "absolute";
     css.left = `${style.x ?? 6}%`;

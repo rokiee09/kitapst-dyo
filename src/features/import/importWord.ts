@@ -1,6 +1,6 @@
-import mammoth from "mammoth";
 import { toast } from "sonner";
-import { htmlToDraftBlocks, plainTextToDraftBlocks, type DraftBlock } from "@/features/import/htmlToDraftBlocks";
+import { draftsFromDocx } from "@/features/import/docxToDrafts";
+import { plainTextToDraftBlocks, type DraftBlock } from "@/features/import/htmlToDraftBlocks";
 import { invokeCommand } from "@/services/tauri/invoke";
 import { useEditorStore } from "@/stores/editorStore";
 import { pickLocalFile } from "@/utils/filePicker";
@@ -13,29 +13,10 @@ export async function importWordIntoChapter() {
   try {
     const raw = await invokeCommand<number[] | Uint8Array>("read_import_bytes", { path });
     const bytes = raw instanceof Uint8Array ? raw : Uint8Array.from(raw);
-    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     const ext = path.split(".").pop()?.toLowerCase() ?? "";
     let drafts: DraftBlock[] = [];
     if (ext === "docx") {
-      const result = await mammoth.convertToHtml(
-        { arrayBuffer: buffer as ArrayBuffer },
-        {
-          styleMap: [
-            "p[style-name='Title'] => h1:fresh",
-            "p[style-name='Subtitle'] => h2:fresh",
-            "p[style-name='Quote'] => blockquote:fresh",
-            "r[style-name='Strong'] => strong",
-            "r[style-name='Emphasis'] => em",
-            "u => u",
-            "strike => s",
-          ],
-          convertImage: mammoth.images.imgElement(async (image) => {
-            const encoded = await image.read("base64");
-            return { src: `data:${image.contentType};base64,${encoded}` };
-          }),
-        },
-      );
-      drafts = htmlToDraftBlocks(result.value);
+      drafts = await draftsFromDocx(bytes);
       drafts = await hydrateImportedImages(drafts);
     } else {
       const text = new TextDecoder("utf-8").decode(bytes);

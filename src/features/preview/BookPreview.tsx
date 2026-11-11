@@ -1,8 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BlockView } from "@/features/blocks/BlockView";
 import { BlockWrapper } from "@/features/blocks/BlockWrapper";
 import { DeviceFrame } from "@/features/preview/DeviceFrame";
-import { BookSheet } from "@/features/blocks/BookSheet";
+import { BOOK_PAGE_HEIGHT, BookSheet } from "@/features/blocks/BookSheet";
+import { PageFitNotice } from "@/features/blocks/PageFitNotice";
+import {
+  blockKindLabel,
+  fitBlocksToPages,
+  measureFlowHeights,
+  measureHeader,
+  sheetContentHeight,
+  textExcerpt,
+  type FitResult,
+  type FitWarning,
+} from "@/features/blocks/pageFit";
 import { isFree } from "@/features/blocks/blockStyle";
 import { blockService } from "@/services";
 import { useEditorStore } from "@/stores/editorStore";
@@ -26,9 +37,54 @@ export function BookPreview({
   const [loaded, setLoaded] = useState<{ chapter: Chapter; blocks: ContentBlock[] }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [fits, setFits] = useState<Record<string, FitResult>>({});
   const sheetRefs = useRef<(HTMLElement | null)[]>([]);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const fitsRef = useRef<Record<string, FitResult>>({});
+  const fitSignature = useRef("");
 
   const ordered = useMemo(() => flattenChapterTree(buildChapterTree(chapters)), [chapters]);
+  const chapterSources = useMemo(
+    () =>
+      loaded.map((entry) => ({
+        id: entry.chapter.id,
+        blocks: entry.chapter.id === selectedChapterId ? liveBlocks : entry.blocks,
+      })),
+    [loaded, liveBlocks, selectedChapterId],
+  );
+
+  useLayoutEffect(() => {
+    if (previewMode !== "book") return;
+    const root = previewRef.current;
+    if (!root) return;
+    const measure = () => {
+      const article = root.querySelector("article");
+      const pageHeight = article ? sheetContentHeight(article) : BOOK_PAGE_HEIGHT - 56 - 96;
+      const heights = measureFlowHeights(root);
+      const next: Record<string, FitResult> = {};
+      for (const source of chapterSources) {
+        const section = root.querySelector<HTMLElement>(`[data-chapter-flow="${source.id}"]`);
+        const items = source.blocks
+          .filter((block) => !isFree(block.style))
+          .map((block) => ({
+            id: block.id,
+            height: heights.get(block.id) ?? 0,
+            kind: block.type === "pageBreak" ? ("break" as const) : ("block" as const),
+            label: textExcerpt(block.data, blockKindLabel(block.type)),
+          }));
+        next[source.id] = fitBlocksToPages(items, pageHeight, section ? measureHeader(section) : 0, fitsRef.current[source.id]?.pages);
+      }
+      const signature = JSON.stringify(next);
+      if (signature === fitSignature.current) return;
+      fitSignature.current = signature;
+      fitsRef.current = next;
+      setFits(next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [chapterSources, previewMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,31 +141,45 @@ export function BookPreview({
       blocks: ContentBlock[];
       number: number;
       label: string;
+      warnings: FitWarning[];
+      first: boolean;
     }[] = [];
     let page = start;
-    items.push({ key: "cover", kind: "cover", blocks: [], number: page, label: "Kapak" });
+    items.push({ key: "cover", kind: "cover", blocks: [], number: page, label: "Kapak", warnings: [], first: true });
     page += 1;
     if (ordered.length > 0) {
-      items.push({ key: "toc", kind: "toc", blocks: [], number: page, label: "İçindekiler" });
+      items.push({ key: "toc", kind: "toc", blocks: [], number: page, label: "İçindekiler", warnings: [], first: true });
       page += 1;
     }
     for (const entry of loaded) {
       const source = entry.chapter.id === selectedChapterId ? liveBlocks : entry.blocks;
-      const slices = splitByPageBreak(source);
-      slices.forEach((blocks, index) => {
+      const flow = source.filter((block) => !isFree(block.style));
+      const free = source.filter((block) => isFree(block.style));
+      const byId = new Map(flow.map((block) => [block.id, block]));
+      const fit = fits[entry.chapter.id];
+      const fitIds = new Set(fit?.pages.flat() ?? []);
+      const ready = Boolean(fit) && flow.length > 0 && flow.every((block) => fitIds.has(block.id)) && fitIds.size === flow.length;
+      const idPages = ready && fit ? fit.pages : splitByPageBreak(flow).map((pageBlocks) => pageBlocks.map((block) => block.id));
+      idPages.forEach((ids, index) => {
+        const pageFlow = ids.flatMap((id) => {
+          const block = byId.get(id);
+          return block ? [block] : [];
+        });
         items.push({
           key: `${entry.chapter.id}-${index}`,
           kind: "chapter",
           chapter: entry.chapter,
-          blocks,
+          blocks: index === 0 ? [...pageFlow, ...free] : pageFlow,
           number: page,
           label: displayChapterLabel(entry.chapter),
+          warnings: index === 0 && ready && fit ? fit.warnings : [],
+          first: index === 0,
         });
         page += 1;
       });
     }
     return items;
-  }, [loaded, liveBlocks, ordered.length, selectedChapterId, start]);
+  }, [fits, loaded, liveBlocks, ordered.length, selectedChapterId, start]);
 
   useEffect(() => {
     const nodes = sheetRefs.current.filter((node): node is HTMLElement => Boolean(node));
@@ -139,7 +209,7 @@ export function BookPreview({
   const current = sheets[currentIndex];
 
   const inner = (
-    <div className="relative flex flex-col items-center gap-8 py-6">
+    <div ref={previewRef} className="relative flex flex-col items-center gap-8 py-6">
       <div className="sticky top-2 z-20 rounded-full bg-[#0b1220]/90 px-3 py-1 text-[11px] text-white shadow">
         Sayfa {current?.number ?? start} / {sheets.at(-1)?.number ?? start}
         {current?.label ? ` — ${current.label}` : ""}
@@ -152,7 +222,7 @@ export function BookPreview({
           ) : sheet.kind === "toc" ? (
             <TocPage chapters={ordered} dark={dark} />
           ) : (
-            <ChapterPage chapter={sheet.chapter!} blocks={sheet.blocks} first={sheet.key.endsWith("-0")} />
+            <ChapterPage chapter={sheet.chapter!} blocks={sheet.blocks} first={sheet.first} warnings={sheet.warnings} />
           );
         const footer = (
           <div
@@ -167,20 +237,23 @@ export function BookPreview({
         const sheetId = sheet.kind === "chapter" && sheet.chapter ? `preview-${sheet.chapter.id}` : sheet.key;
         if (previewMode === "book") {
           return (
-            <BookSheet
-              key={sheet.key}
-              id={sheetId}
-              dark={dark}
-              clip
-              showGuide
-              style={paperStyle}
-              footer={footer}
-              sheetRef={(node) => {
-                sheetRefs.current[index] = node;
-              }}
-            >
-              {body}
-            </BookSheet>
+            <div key={sheet.key} className="flex w-full flex-col items-center gap-2">
+              <PageFitNotice warnings={sheet.warnings} />
+              <BookSheet
+                id={sheetId}
+                dark={dark}
+                clip={false}
+                quietOverflow
+                showGuide
+                style={paperStyle}
+                footer={footer}
+                sheetRef={(node) => {
+                  sheetRefs.current[index] = node;
+                }}
+              >
+                {body}
+              </BookSheet>
+            </div>
           );
         }
         return (
@@ -249,20 +322,28 @@ function ChapterPage({
   chapter,
   blocks,
   first,
+  warnings,
 }: {
   chapter: Chapter;
   blocks: ContentBlock[];
   first: boolean;
+  warnings: FitWarning[];
 }) {
   const flow = blocks.filter((block) => !isFree(block.style));
   const free = blocks.filter((block) => isFree(block.style));
+  const warningById = new Map(warnings.map((warning) => [warning.id, warning.action]));
   return (
     <div className="relative">
-      {first ? <h1 className="mb-6 text-2xl font-semibold">{displayChapterLabel(chapter)}</h1> : null}
-      <div className="space-y-4">
+      <div data-chapter-flow={chapter.id}>
+      {first ? (
+        <h1 data-page-header="" className="mb-6 text-2xl font-semibold">
+          {displayChapterLabel(chapter)}
+        </h1>
+      ) : null}
+      <div className="space-y-4" data-flow-stack="">
         {flow.length === 0 && first ? <p className="text-sm opacity-60">Bu bölümde henüz içerik yok.</p> : null}
         {flow.map((block) => (
-          <BlockWrapper key={block.id} block={block} editable={false}>
+          <BlockWrapper key={block.id} block={block} editable={false} pageFit={warningById.get(block.id)}>
             <BlockView block={block} editable={false} />
           </BlockWrapper>
         ))}
@@ -272,6 +353,7 @@ function ChapterPage({
           <BlockView block={block} editable={false} />
         </BlockWrapper>
       ))}
+      </div>
     </div>
   );
 }
@@ -279,11 +361,9 @@ function ChapterPage({
 function splitByPageBreak(blocks: ContentBlock[]): ContentBlock[][] {
   const pages: ContentBlock[][] = [[]];
   for (const block of blocks) {
-    if (block.type === "pageBreak") {
-      pages.push([]);
-      continue;
-    }
     pages[pages.length - 1].push(block);
+    if (block.type === "pageBreak") pages.push([]);
   }
+  while (pages.length > 1 && pages[pages.length - 1].length === 0) pages.pop();
   return pages.length ? pages : [[]];
 }

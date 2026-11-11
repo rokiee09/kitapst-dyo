@@ -41,6 +41,11 @@ export interface BlockStyle {
   fontSize?: number;
   headingSize?: 1 | 2 | 3;
   lineHeight?: number;
+  marginLeft?: number;
+  marginRight?: number;
+  textIndent?: number;
+  marginTop?: number;
+  marginBottom?: number;
   listMarker?: string;
   placement?: "flow" | "free";
   x?: number;

@@ -10,6 +10,7 @@ export function BookSheet({
   clip = false,
   showGuide = true,
   fluid = false,
+  quietOverflow = false,
   className,
   style,
   footer,
@@ -21,6 +22,7 @@ export function BookSheet({
   clip?: boolean;
   showGuide?: boolean;
   fluid?: boolean;
+  quietOverflow?: boolean;
   className?: string;
   style?: CSSProperties;
   footer?: ReactNode;
@@ -52,7 +54,7 @@ export function BookSheet({
 
   return (
     <div className={cn("relative", fluid ? "w-full" : "mx-auto")} style={fluid ? undefined : { width: BOOK_PAGE_WIDTH }}>
-      {overflow ? (
+      {overflow && !quietOverflow ? (
         <div
           className={cn(
             "mb-2 rounded-md px-3 py-1.5 text-[11px] font-medium",

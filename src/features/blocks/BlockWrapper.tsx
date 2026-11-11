@@ -21,9 +21,10 @@ interface BlockWrapperProps {
   block: ContentBlock;
   children: ReactNode;
   editable: boolean;
+  pageFit?: "next-page" | "kept";
 }
 
-export function BlockWrapper({ block, children, editable }: BlockWrapperProps) {
+export function BlockWrapper({ block, children, editable, pageFit }: BlockWrapperProps) {
   const selected = useEditorStore((state) => state.selectedBlockId === block.id);
   const locateHere = useEditorStore((state) => state.locateQuery?.blockId === block.id);
   const free = isFree(block.style);
@@ -165,11 +166,15 @@ export function BlockWrapper({ block, children, editable }: BlockWrapperProps) {
       data-list-marker={block.type === "heading" ? undefined : block.style.listMarker?.trim() || undefined}
       data-block-kind={block.type}
       data-heading-size={block.style.fontSize ? undefined : effectiveHeadingSize(block.style, block.data)}
+      data-block-font={block.style.fontSize ? "" : undefined}
+      data-spaced={block.style.marginTop != null || block.style.marginBottom != null ? "" : undefined}
       id={`block-${block.id}`}
       data-block-id={block.id}
       className={cn(
-        "group relative rounded-md px-2 py-1",
+        "group relative rounded-md px-2",
+        block.style.marginTop != null || block.style.marginBottom != null ? "py-0" : "py-1",
         selected && !free && "ring-2 ring-blue-500",
+        pageFit && !selected && "ring-1 ring-amber-400",
         locateHere && "ring-2 ring-amber-400",
         isDragging && "opacity-70",
         free && "cursor-grab rounded-sm p-0 active:cursor-grabbing",
@@ -183,6 +188,11 @@ export function BlockWrapper({ block, children, editable }: BlockWrapperProps) {
       onClick={() => useEditorStore.getState().selectBlock(block.id)}
       onPointerDown={free && editable ? startMove : undefined}
     >
+      {pageFit ? (
+        <p className="pointer-events-none absolute -top-3 left-2 z-10 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
+          {pageFit === "next-page" ? "Sonraki sayfaya alındı, düzen korundu" : "Sayfadan uzun, bölünmeden bırakıldı"}
+        </p>
+      ) : null}
       {editable && !free ? (
         <div className="absolute -left-7 top-2 hidden flex-col items-center gap-1 group-hover:flex">
           <button

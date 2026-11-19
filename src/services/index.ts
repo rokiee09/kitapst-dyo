@@ -10,6 +10,7 @@ import type {
 
 export interface DriveSyncSettings {
   enabled: boolean;
+  mode: "google" | "folder" | string;
   folderPath: string;
   machineId: string;
   lastPushAt: string | null;
@@ -17,6 +18,9 @@ export interface DriveSyncSettings {
   lastAppliedRemoteAt: string | null;
   remoteSlug: string;
   warning: string | null;
+  googleEmail: string;
+  googleConnected: boolean;
+  clientConfigured: boolean;
 }
 
 export interface DrivePollResult {
@@ -47,8 +51,21 @@ export const projectService = {
   getDriveSync(): Promise<DriveSyncSettings> {
     return invokeCommand("get_drive_sync_settings");
   },
-  setDriveSync(enabled: boolean, folderPath: string): Promise<DriveSyncSettings> {
-    return invokeCommand("set_drive_sync_settings", { enabled, folderPath });
+  setDriveSync(
+    enabled: boolean,
+    folderPath: string,
+    mode?: "google" | "folder",
+  ): Promise<DriveSyncSettings> {
+    return invokeCommand("set_drive_sync_settings", { enabled, folderPath, mode });
+  },
+  saveGoogleOauthClient(clientId: string, clientSecret: string): Promise<DriveSyncSettings> {
+    return invokeCommand("save_google_oauth_client", { clientId, clientSecret });
+  },
+  googleDriveLogin(): Promise<DriveSyncSettings> {
+    return invokeCommand("google_drive_login");
+  },
+  googleDriveLogout(): Promise<DriveSyncSettings> {
+    return invokeCommand("google_drive_logout");
   },
   pushDriveSync(): Promise<DriveSyncSettings> {
     return invokeCommand("push_drive_sync");

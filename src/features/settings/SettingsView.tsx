@@ -91,30 +91,36 @@ export function SettingsView() {
 function DriveSyncCard() {
   const [settings, setSettings] = useState<DriveSyncSettings | null>(null);
   const [folderPath, setFolderPath] = useState("");
+  const [mode, setMode] = useState<"google" | "folder">("google");
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const pullDriveSync = useWorkspaceStore((state) => state.pullDriveSync);
 
   useEffect(() => {
     void projectService
       .getDriveSync()
       .then((next) => {
-        setSettings(next);
-        setFolderPath(next.folderPath);
-        setEnabled(next.enabled);
-        useWorkspaceStore.setState({ driveSync: next });
+        applySettings(next);
       })
       .catch(() => undefined);
   }, []);
 
-  async function save(nextEnabled = enabled, nextPath = folderPath) {
+  function applySettings(next: DriveSyncSettings) {
+    setSettings(next);
+    setFolderPath(next.folderPath);
+    setEnabled(next.enabled);
+    setMode(next.mode === "folder" ? "folder" : "google");
+    useWorkspaceStore.setState({ driveSync: next });
+  }
+
+  async function save(nextEnabled = enabled, nextPath = folderPath, nextMode = mode) {
     setBusy(true);
     try {
-      const saved = await projectService.setDriveSync(nextEnabled, nextPath.trim());
-      setSettings(saved);
-      setEnabled(saved.enabled);
-      setFolderPath(saved.folderPath);
-      useWorkspaceStore.setState({ driveSync: saved });
+      const saved = await projectService.setDriveSync(nextEnabled, nextPath.trim(), nextMode);
+      applySettings(saved);
       if (saved.warning) toast.warning(saved.warning, { duration: 12000 });
       else toast.success(saved.enabled ? "Drive senkronu açıldı ve kitap yedeklendi." : "Drive senkronu kapandı.");
     } catch (error) {
@@ -126,13 +132,103 @@ function DriveSyncCard() {
 
   return (
     <div className="rounded-lg border border-[#1c2a44] bg-[#070b14] p-4">
-      <h2 className="mb-2 font-medium">Çoklu çalışma (Drive klasörü)</h2>
+      <h2 className="mb-2 font-medium">Çoklu çalışma (Google Drive)</h2>
       <p className="mb-3 text-sm text-[#8aa0bd]">
-        Google Drive masaüstü uygulamasındaki paylaşılan klasörü seçin. Kayıt Drive’a yazılır;
-        açıkken uygulama her 8 saniyede klasörü kontrol eder ve diğer bilgisayardaki güncellemeyi
-        kitaba yansıtır. Aynı anda iki kişi yazmasın; son kayıt geçerli olur.
+        Google hesabıyla giriş yapınca uygulama Drive’da kendi “Kitap Stüdyosu” klasörünü oluşturur
+        (<code className="text-[#a8c0d8]">drive.file</code> izni). Aynı hesabı iki PC’de kullanın.
+        Testing modunda ~7 günde bir yeniden giriş gerekir; kalıcı kullanım için uygulamayı yayınlayın
+        ve gizlilik politikası URL’si ekleyin.
       </p>
       <div className="space-y-3">
+        {!settings?.clientConfigured ? (
+          <div className="rounded-md border border-[#243552] bg-[#0a1220] p-3 space-y-2">
+            <p className="text-xs text-[#8aa0bd]">
+              Önce Google Cloud’da Desktop OAuth istemcisi oluşturup Client ID / Secret girin. Adımlar:{" "}
+              <span className="text-[#c5d4e8]">docs/GOOGLE_DRIVE_OAUTH.md</span>
+            </p>
+            <div>
+              <Label>Client ID</Label>
+              <Input className="mt-1" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+            </div>
+            <div>
+              <Label>Client Secret</Label>
+              <Input
+                className="mt-1"
+                type="password"
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+              />
+            </div>
+            <Button
+              disabled={busy}
+              variant="secondary"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    const next = await projectService.saveGoogleOauthClient(clientId.trim(), clientSecret.trim());
+                    applySettings(next);
+                    toast.success("OAuth istemcisi kaydedildi.");
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "OAuth kaydı başarısız.");
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              Client bilgilerini kaydet
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {settings?.googleConnected ? (
+            <>
+              <p className="text-sm text-emerald-300">Bağlı: {settings.googleEmail || "Google hesabı"}</p>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      applySettings(await projectService.googleDriveLogout());
+                      toast.success("Google oturumu kapatıldı.");
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Çıkış başarısız.");
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                Çıkış yap
+              </Button>
+            </>
+          ) : (
+            <Button
+              disabled={busy || !settings?.clientConfigured}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    const next = await projectService.googleDriveLogin();
+                    applySettings(next);
+                    toast.success("Google hesabı bağlandı.");
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Google girişi başarısız.");
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              Google ile giriş
+            </Button>
+          )}
+        </div>
+
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -140,36 +236,18 @@ function DriveSyncCard() {
             onChange={(event) => {
               const next = event.target.checked;
               setEnabled(next);
-              if (!next) void save(false, folderPath);
+              if (!next) void save(false, folderPath, mode);
+              else if (mode === "google") void save(true, folderPath, "google");
             }}
           />
-          Drive klasörüne canlı yedekle
+          Canlı Drive senkronu
         </label>
-        <div>
-          <Label htmlFor="drive-path">Paylaşılan klasör</Label>
-          <div className="mt-1 flex gap-2">
-            <Input
-              id="drive-path"
-              value={folderPath}
-              placeholder="Örn. G:\\Benim Drive\\KitapStudio"
-              onChange={(event) => setFolderPath(event.target.value)}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                void pickLocalFolder().then((path) => {
-                  if (!path) return;
-                  setFolderPath(path);
-                });
-              }}
-            >
-              Seç
-            </Button>
-          </div>
-        </div>
+
         <div className="flex flex-wrap gap-2">
-          <Button disabled={busy} onClick={() => void save(true, folderPath)}>
+          <Button
+            disabled={busy}
+            onClick={() => void save(true, folderPath, mode === "folder" ? "folder" : "google")}
+          >
             Kaydet ve senkronla
           </Button>
           <Button
@@ -181,10 +259,9 @@ function DriveSyncCard() {
                 try {
                   await useEditorStore.getState().flushSave();
                   const next = await projectService.pushDriveSync();
-                  setSettings(next);
-                  useWorkspaceStore.setState({ driveSync: next });
-                  if (next.warning) toast.message(next.warning);
-                  else toast.success("Drive klasörüne yazıldı.");
+                  applySettings(next);
+                  if (next.warning) toast.warning(next.warning, { duration: 12000 });
+                  else toast.success("Drive’a yazıldı.");
                 } catch (error) {
                   toast.error(error instanceof Error ? error.message : "Drive’a yazılamadı.");
                 } finally {
@@ -216,10 +293,68 @@ function DriveSyncCard() {
             Drive’dan al
           </Button>
         </div>
+
+        <button
+          type="button"
+          className="text-xs text-[#8aa0bd] underline"
+          onClick={() => setShowAdvanced((value) => !value)}
+        >
+          {showAdvanced ? "Gelişmiş seçenekleri gizle" : "Gelişmiş: masaüstü klasör yolu"}
+        </button>
+        {showAdvanced ? (
+          <div className="space-y-2 rounded-md border border-[#1c2a44] p-3">
+            <p className="text-xs text-[#8aa0bd]">
+              Eski yöntem: Google Drive masaüstü uygulamasındaki klasörü seçin. OAuth’a gerek yok.
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                checked={mode === "folder"}
+                onChange={() => setMode("folder")}
+              />
+              Klasör yolu kullan
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                checked={mode === "google"}
+                onChange={() => setMode("google")}
+              />
+              Google hesabı (önerilen)
+            </label>
+            <div>
+              <Label htmlFor="drive-path">Paylaşılan klasör</Label>
+              <div className="mt-1 flex gap-2">
+                <Input
+                  id="drive-path"
+                  value={folderPath}
+                  placeholder="Örn. G:\\Benim Drive\\KitapStudio"
+                  onChange={(event) => setFolderPath(event.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    void pickLocalFolder().then((path) => {
+                      if (!path) return;
+                      setFolderPath(path);
+                      setMode("folder");
+                    });
+                  }}
+                >
+                  Seç
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {settings?.enabled ? (
-          <p className="text-xs text-emerald-300">Canlı senkron açık. Üst çubukta “Drive canlı” görünür.</p>
+          <p className="text-xs text-emerald-300">
+            Canlı senkron açık ({settings.mode === "folder" ? "klasör" : "Google API"}).
+          </p>
         ) : (
-          <p className="text-xs text-[#8aa0bd]">Canlı senkron kapalı. Klasör seçip kaydedin.</p>
+          <p className="text-xs text-[#8aa0bd]">Canlı senkron kapalı.</p>
         )}
         {settings?.lastPushAt ? (
           <p className="text-xs text-[#8aa0bd]">Son yazma: {new Date(settings.lastPushAt).toLocaleString("tr-TR")}</p>

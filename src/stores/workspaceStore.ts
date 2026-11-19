@@ -331,6 +331,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (drivePollInFlight) return;
     const settings = get().driveSync;
     if (settings && !settings.enabled) return;
+    if (
+      settings &&
+      settings.mode === "google" &&
+      !settings.googleConnected
+    ) {
+      return;
+    }
     const { useEditorStore } = await import("@/stores/editorStore");
     const editor = useEditorStore.getState();
     if (editor.saveStatus !== "saved") return;

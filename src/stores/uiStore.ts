@@ -1,16 +1,26 @@
 import { create } from "zustand";
 import type { AppView, PreviewMode } from "@/types/domain";
 
+export const COMPACT_RIGHT_BREAKPOINT = 1360;
+export const COMPACT_LEFT_BREAKPOINT = 1000;
+export const COMPACT_DOCK_BREAKPOINT = 820;
+
+function initialWidth() {
+  return typeof window !== "undefined" ? window.innerWidth : 1920;
+}
+
 interface UiState {
   view: AppView;
   leftCollapsed: boolean;
   rightCollapsed: boolean;
+  dockCollapsed: boolean;
   leftWidth: number;
   rightWidth: number;
   previewMode: PreviewMode;
   previewing: boolean;
   collapsedChapterIds: string[];
   zoom: number;
+  zoomFit: boolean;
   paperDark: boolean;
   rightTab: "properties" | "design" | "proofread";
   bookSettingsOpen: boolean;
@@ -18,6 +28,7 @@ interface UiState {
   setView: (view: AppView) => void;
   toggleLeft: () => void;
   toggleRight: () => void;
+  toggleDock: () => void;
   setLeftWidth: (width: number) => void;
   setRightWidth: (width: number) => void;
   setPreviewMode: (mode: PreviewMode) => void;
@@ -26,6 +37,7 @@ interface UiState {
   togglePreview: () => void;
   toggleChapterCollapsed: (id: string) => void;
   setZoom: (zoom: number) => void;
+  setZoomFit: (fit: boolean) => void;
   togglePaperDark: () => void;
   setRightTab: (tab: UiState["rightTab"]) => void;
   openProofread: () => void;
@@ -37,14 +49,17 @@ interface UiState {
 
 export const useUiStore = create<UiState>((set, get) => ({
   view: "book",
-  leftCollapsed: false,
-  rightCollapsed: false,
+  leftCollapsed: initialWidth() < COMPACT_LEFT_BREAKPOINT,
+  rightCollapsed: initialWidth() < COMPACT_RIGHT_BREAKPOINT,
+  // Yazma alanını korumak için alt panel varsayılan kapalı; kısa ekranda da kapalı kalır.
+  dockCollapsed: true,
   leftWidth: 232,
   rightWidth: 280,
   previewMode: "book",
   previewing: false,
   collapsedChapterIds: [],
   zoom: 100,
+  zoomFit: true,
   paperDark: false,
   rightTab: "properties",
   bookSettingsOpen: false,
@@ -52,6 +67,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   setView: (view) => set({ view, previewing: view === "book" || view === "chapters" ? get().previewing : false, drawer: null }),
   toggleLeft: () => set({ leftCollapsed: !get().leftCollapsed }),
   toggleRight: () => set({ rightCollapsed: !get().rightCollapsed }),
+  toggleDock: () => set({ dockCollapsed: !get().dockCollapsed }),
   setLeftWidth: (width) => set({ leftWidth: Math.min(240, Math.max(140, width)) }),
   setRightWidth: (width) => set({ rightWidth: Math.min(280, Math.max(160, width)) }),
   setPreviewMode: (previewMode) => set({ previewMode, previewing: true, view: "book" }),
@@ -70,7 +86,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     set({ previewing: true, view: "book" });
   },
-  setZoom: (zoom) => set({ zoom: Math.min(150, Math.max(75, zoom)) }),
+  setZoom: (zoom) => set({ zoom: Math.min(150, Math.max(50, zoom)), zoomFit: false }),
+  setZoomFit: (fit) => set({ zoomFit: fit }),
   togglePaperDark: () => set({ paperDark: !get().paperDark }),
   setRightTab: (rightTab) => set({ rightTab, rightCollapsed: false }),
   openProofread: () =>

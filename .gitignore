@@ -12,6 +12,7 @@ dist
 src-tauri/target
 dist-ssr
 *.local
+src-tauri/google_oauth.json
 
 .vscode/*
 !.vscode/extensions.json

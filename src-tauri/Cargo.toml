@@ -25,7 +25,9 @@ thiserror = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
+sha2 = "0.10"
+urlencoding = "2"
 
 [profile.release]
 codegen-units = 1

@@ -100,7 +100,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     const page = frameRef.current?.closest(".book-page");
-    const pageWidth = page?.clientWidth ?? 720;
+    const pageWidth = page?.getBoundingClientRect().width || 720;
     const startX = event.clientX;
     const startWidth = widthPercent;
     const grow = data.align === "center" && !free && !wrap ? 2 : 1;

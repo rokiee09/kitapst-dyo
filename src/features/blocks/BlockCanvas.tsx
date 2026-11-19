@@ -11,7 +11,7 @@ import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { BlockView } from "@/features/blocks/BlockView";
 import { BlockWrapper } from "@/features/blocks/BlockWrapper";
 import { DeviceFrame } from "@/features/preview/DeviceFrame";
-import { BookSheet } from "@/features/blocks/BookSheet";
+import { BOOK_PAGE_HEIGHT, BOOK_PAGE_PADDING, BookSheet } from "@/features/blocks/BookSheet";
 import { PageFitNotice } from "@/features/blocks/PageFitNotice";
 import {
   fitBlocksToPages,
@@ -121,7 +121,8 @@ export function BlockCanvas({
       const fallback = pagePixels(resolvePageSpec(book));
       const pageHeight = article
         ? sheetContentHeight(article)
-        : fallback.contentHeight;
+        : fallback.contentHeight ||
+          BOOK_PAGE_HEIGHT - BOOK_PAGE_PADDING.top - BOOK_PAGE_PADDING.bottom;
       const heights = measureFlowHeights(root);
       const items = blocks
         .filter((block) => !isFree(block.style))

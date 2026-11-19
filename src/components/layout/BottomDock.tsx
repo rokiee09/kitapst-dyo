@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  ChevronDown,
   FileArchive,
   FileCode2,
   FileText,
@@ -22,16 +23,44 @@ const EXPORTS = [
 export function BottomDock() {
   const paperDark = useUiStore((state) => state.paperDark);
   const togglePaperDark = useUiStore((state) => state.togglePaperDark);
+  const dockCollapsed = useUiStore((state) => state.dockCollapsed);
+  const toggleDock = useUiStore((state) => state.toggleDock);
   const stats = useWorkspaceStore((state) => state.stats);
   const versions = useWorkspaceStore((state) => state.versions);
   const latest = versions[0];
   const wordCount = stats?.wordCount ?? 0;
 
+  if (dockCollapsed) {
+    return (
+      <button
+        type="button"
+        id="studio-dock"
+        className="flex h-7 shrink-0 items-center justify-between border-t border-[#1c314c] bg-[#0a1628] px-3 text-[11px] text-[#8aa0b8] hover:bg-[#102038] hover:text-white"
+        onClick={toggleDock}
+        title="Alt paneli aç"
+      >
+        <span>
+          Dışa aktar · Sürüm · İstatistik ({wordCount.toLocaleString("tr-TR")} kelime)
+        </span>
+        <span className="text-[10px] text-[#6f849e]">Aç</span>
+      </button>
+    );
+  }
+
   return (
     <div
       id="studio-dock"
-      className="grid h-[158px] shrink-0 grid-cols-[1.15fr_1.35fr_0.9fr_0.95fr] gap-3 border-t border-[#1c314c] bg-[#0a1628] px-3 py-2.5"
+      className="relative grid h-[158px] shrink-0 grid-cols-[1.15fr_1.35fr_0.9fr_0.95fr] gap-3 border-t border-[#1c314c] bg-[#0a1628] px-3 py-2.5"
     >
+      <button
+        type="button"
+        className="absolute right-2 top-1.5 rounded p-0.5 text-[#8aa0b8] hover:bg-[#163056] hover:text-white"
+        title="Alt paneli gizle"
+        aria-label="Alt paneli gizle"
+        onClick={toggleDock}
+      >
+        <ChevronDown size={14} />
+      </button>
       <section className="min-w-0">
         <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8aa0b8]">
           Dışa Aktar / Yayınla
@@ -131,5 +160,11 @@ function WordCountBadge({ value }: { value: number }) {
 function formatStamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("tr-TR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleString("tr-TR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

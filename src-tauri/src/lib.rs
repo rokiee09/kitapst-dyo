@@ -8,6 +8,7 @@ mod export;
 mod extras;
 mod filesystem;
 mod frontmatter;
+mod google_drive;
 mod library;
 mod models;
 mod page_spec;
@@ -86,6 +87,9 @@ pub fn run() {
             sync::push_drive_sync,
             sync::pull_drive_sync,
             sync::poll_drive_sync,
+            sync::save_google_oauth_client,
+            sync::google_drive_login,
+            sync::google_drive_logout,
         ])
         .run(tauri::generate_context!())
         .expect("Kitap Stüdyosu başlatılamadı.");

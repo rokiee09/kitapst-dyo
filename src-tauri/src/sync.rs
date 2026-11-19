@@ -16,6 +16,8 @@ const LOCK_STALE_SECS: u64 = 120;
 #[serde(rename_all = "camelCase")]
 pub struct DriveSyncSettings {
     pub enabled: bool,
+    /// `google` = OAuth + Drive API (drive.file); `folder` = masaüstü klasör yolu.
+    pub mode: String,
     pub folder_path: String,
     pub machine_id: String,
     pub last_push_at: Option<String>,
@@ -23,6 +25,9 @@ pub struct DriveSyncSettings {
     pub last_applied_remote_at: Option<String>,
     pub remote_slug: String,
     pub warning: Option<String>,
+    pub google_email: String,
+    pub google_connected: bool,
+    pub client_configured: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +67,29 @@ enum PullOutcome {
 
 #[tauri::command]
 pub fn get_drive_sync_settings(app: AppHandle) -> Result<DriveSyncSettings, AppError> {
-    Ok(load_settings(&app)?)
+    Ok(enrich_google(&app, load_settings(&app)?))
+}
+
+fn enrich_google(app: &AppHandle, mut settings: DriveSyncSettings) -> DriveSyncSettings {
+    let info = crate::google_drive::account_info(app).unwrap_or(crate::google_drive::GoogleAccountInfo {
+        connected: false,
+        email: String::new(),
+        root_folder_id: String::new(),
+        client_configured: false,
+    });
+    settings.google_connected = info.connected;
+    settings.google_email = info.email;
+    settings.client_configured = info.client_configured;
+    if settings.mode.trim().is_empty() {
+        settings.mode = if info.connected {
+            "google".into()
+        } else if !settings.folder_path.trim().is_empty() {
+            "folder".into()
+        } else {
+            "google".into()
+        };
+    }
+    settings
 }
 
 #[tauri::command]
@@ -71,15 +98,27 @@ pub fn set_drive_sync_settings(
     state: tauri::State<AppState>,
     enabled: bool,
     folder_path: String,
+    mode: Option<String>,
 ) -> Result<DriveSyncSettings, AppError> {
     let folder = folder_path.trim().to_string();
-    if enabled && folder.is_empty() {
+    let mut settings = load_settings(&app)?;
+    let next_mode = mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| matches!(*value, "google" | "folder"))
+        .unwrap_or(if settings.mode == "google" {
+            "google"
+        } else {
+            "folder"
+        })
+        .to_string();
+    if enabled && next_mode == "folder" && folder.is_empty() {
         return Err(AppError::user(
             "Drive klasör yolu boş olamaz.",
             "empty sync folder",
         ));
     }
-    if enabled {
+    if enabled && next_mode == "folder" {
         let path = PathBuf::from(&folder);
         if !path.is_dir() {
             return Err(AppError::user(
@@ -88,11 +127,18 @@ pub fn set_drive_sync_settings(
             ));
         }
     }
-    let mut settings = load_settings(&app)?;
+    if enabled && next_mode == "google" && !crate::google_drive::is_connected(&app) {
+        return Err(AppError::user(
+            "Önce Google hesabıyla giriş yapın.",
+            "google not connected",
+        ));
+    }
     settings.enabled = enabled;
+    settings.mode = next_mode;
     settings.folder_path = folder;
     settings.warning = None;
     save_settings(&app, &settings)?;
+    settings = enrich_google(&app, settings);
     if settings.enabled {
         match pull_current(&app, &state, &settings) {
             Ok(PullOutcome::Updated {
@@ -121,7 +167,44 @@ pub fn set_drive_sync_settings(
             }
         }
     }
-    Ok(settings)
+    Ok(enrich_google(&app, settings))
+}
+
+#[tauri::command]
+pub fn save_google_oauth_client(
+    app: AppHandle,
+    client_id: String,
+    client_secret: String,
+) -> Result<DriveSyncSettings, AppError> {
+    crate::google_drive::save_client_config(
+        &app,
+        crate::google_drive::GoogleClientConfig {
+            client_id,
+            client_secret,
+        },
+    )?;
+    Ok(enrich_google(&app, load_settings(&app)?))
+}
+
+#[tauri::command]
+pub fn google_drive_login(app: AppHandle) -> Result<DriveSyncSettings, AppError> {
+    let _ = crate::google_drive::login(&app)?;
+    let mut settings = load_settings(&app)?;
+    settings.mode = "google".into();
+    save_settings(&app, &settings)?;
+    Ok(enrich_google(&app, settings))
+}
+
+#[tauri::command]
+pub fn google_drive_logout(app: AppHandle) -> Result<DriveSyncSettings, AppError> {
+    let _ = crate::google_drive::logout(&app)?;
+    let mut settings = load_settings(&app)?;
+    if settings.mode == "google" {
+        settings.enabled = false;
+    }
+    settings.warning = None;
+    save_settings(&app, &settings)?;
+    Ok(enrich_google(&app, settings))
 }
 
 #[tauri::command]
@@ -129,7 +212,7 @@ pub fn push_drive_sync(
     app: AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<DriveSyncSettings, AppError> {
-    let settings = load_settings(&app)?;
+    let settings = enrich_google(&app, load_settings(&app)?);
     if !settings.enabled {
         return Ok(settings);
     }
@@ -150,8 +233,11 @@ pub fn poll_drive_sync(
     app: AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<DrivePollResult, AppError> {
-    let mut settings = load_settings(&app)?;
-    if !settings.enabled || settings.folder_path.trim().is_empty() {
+    let mut settings = enrich_google(&app, load_settings(&app)?);
+    let ready = settings.enabled
+        && (settings.mode == "google" && settings.google_connected
+            || settings.mode != "google" && !settings.folder_path.trim().is_empty());
+    if !ready {
         return Ok(DrivePollResult {
             changed: false,
             settings,
@@ -198,10 +284,13 @@ pub fn poll_drive_sync(
 }
 
 pub fn try_pull_on_load(app: &AppHandle, state: &AppState) {
-    let Ok(mut settings) = load_settings(app) else {
+    let Ok(mut settings) = load_settings(app).map(|s| enrich_google(app, s)) else {
         return;
     };
-    if !settings.enabled || settings.folder_path.trim().is_empty() {
+    let ready = settings.enabled
+        && (settings.mode == "google" && settings.google_connected
+            || settings.mode != "google" && !settings.folder_path.trim().is_empty());
+    if !ready {
         return;
     }
     match pull_current(app, state, &settings) {
@@ -234,6 +323,9 @@ fn push_current(
     state: &AppState,
     settings: &DriveSyncSettings,
 ) -> Result<DriveSyncSettings, AppError> {
+    if settings.mode == "google" {
+        return push_google(app, state, settings);
+    }
     let root = state.project_root()?;
     let book = {
         let conn = state.db()?;
@@ -269,14 +361,99 @@ fn push_current(
     next.last_applied_remote_at = Some(meta.updated_at);
     next.warning = warning;
     save_settings(app, &next)?;
-    Ok(next)
+    Ok(enrich_google(app, next))
+}
+
+fn push_google(
+    app: &AppHandle,
+    state: &AppState,
+    settings: &DriveSyncSettings,
+) -> Result<DriveSyncSettings, AppError> {
+    let root = state.project_root()?;
+    let book = {
+        let conn = state.db()?;
+        database::get_book(&conn)?
+    };
+    let mut next = settings.clone();
+    if next.remote_slug.trim().is_empty() {
+        next.remote_slug = folder_slug(&book.title);
+    }
+    let folder_id = crate::google_drive::ensure_book_folder(app, &next.remote_slug)?;
+    let staging = root.join(".drive-google-push");
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging)?;
+    {
+        let conn = state.db()?;
+        export_sqlite_to_drive(&conn, &root, &staging.join("project.sqlite"))?;
+    }
+    copy_file_if_exists(&root.join("project.json"), &staging.join("project.json"))?;
+    let sqlite_bytes = fs::read(staging.join("project.sqlite"))?;
+    crate::google_drive::upload_bytes(
+        app,
+        &folder_id,
+        "project.sqlite",
+        "application/x-sqlite3",
+        &sqlite_bytes,
+    )?;
+    if staging.join("project.json").is_file() {
+        let bytes = fs::read(staging.join("project.json"))?;
+        crate::google_drive::upload_bytes(app, &folder_id, "project.json", "application/json", &bytes)?;
+    }
+    let assets = root.join("assets");
+    if assets.is_dir() {
+        let zip_bytes = crate::google_drive::zip_dir(&assets)?;
+        crate::google_drive::upload_bytes(
+            app,
+            &folder_id,
+            "assets.zip",
+            "application/zip",
+            &zip_bytes,
+        )?;
+    }
+    let meta = SyncMeta {
+        book_title: book.title.clone(),
+        updated_at: database::now(),
+        machine_id: next.machine_id.clone(),
+        project_slug: next.remote_slug.clone(),
+    };
+    let meta_bytes = serde_json::to_vec_pretty(&meta)?;
+    let warning = conflict_warning_google(app, &folder_id, &next.machine_id, &book.title)?;
+    let lock = SyncLock {
+        machine_id: next.machine_id.clone(),
+        updated_at: database::now(),
+        book_title: book.title.clone(),
+        machine_name: hostname(),
+    };
+    crate::google_drive::upload_bytes(
+        app,
+        &folder_id,
+        "sync-meta.json",
+        "application/json",
+        &meta_bytes,
+    )?;
+    crate::google_drive::upload_bytes(
+        app,
+        &folder_id,
+        ".kitap-edit.lock",
+        "application/json",
+        &serde_json::to_vec_pretty(&lock)?,
+    )?;
+    let _ = fs::remove_dir_all(&staging);
+    next.last_push_at = Some(meta.updated_at.clone());
+    next.last_applied_remote_at = Some(meta.updated_at);
+    next.warning = warning;
+    save_settings(app, &next)?;
+    Ok(enrich_google(app, next))
 }
 
 fn pull_current(
-    _app: &AppHandle,
+    app: &AppHandle,
     state: &AppState,
     settings: &DriveSyncSettings,
 ) -> Result<PullOutcome, AppError> {
+    if settings.mode == "google" {
+        return pull_google(app, state, settings);
+    }
     let root = state.project_root()?;
     let book = {
         let conn = state.db()?;
@@ -323,7 +500,7 @@ fn pull_current(
         let mut conn = state.db()?;
         *conn = new_conn;
     }
-    filesystem::remember_project(_app, &root)?;
+    filesystem::remember_project(app, &root)?;
     write_lock(&remote, &settings.machine_id, &book.title)?;
     let remote_updated_at = meta
         .map(|item| item.updated_at)
@@ -334,6 +511,124 @@ fn pull_current(
         }),
         remote_updated_at,
     })
+}
+
+fn pull_google(
+    app: &AppHandle,
+    state: &AppState,
+    settings: &DriveSyncSettings,
+) -> Result<PullOutcome, AppError> {
+    let root = state.project_root()?;
+    let book = {
+        let conn = state.db()?;
+        database::get_book(&conn)?
+    };
+    let mut slug = settings.remote_slug.clone();
+    if slug.trim().is_empty() {
+        slug = folder_slug(&book.title);
+    }
+    let folder_id = crate::google_drive::ensure_book_folder(app, &slug)?;
+    let meta = crate::google_drive::read_text_file(app, &folder_id, "sync-meta.json")?
+        .and_then(|raw| serde_json::from_str::<SyncMeta>(&raw).ok());
+    let warning = conflict_warning_google(app, &folder_id, &settings.machine_id, &book.title)?;
+    if !should_pull(settings, meta.as_ref()) {
+        let lock = SyncLock {
+            machine_id: settings.machine_id.clone(),
+            updated_at: database::now(),
+            book_title: book.title.clone(),
+            machine_name: hostname(),
+        };
+        let _ = crate::google_drive::upload_bytes(
+            app,
+            &folder_id,
+            ".kitap-edit.lock",
+            "application/json",
+            &serde_json::to_vec_pretty(&lock)?,
+        );
+        return Ok(PullOutcome::Unchanged(warning));
+    }
+    let Some(sqlite_bytes) = crate::google_drive::download_file_bytes(app, &folder_id, "project.sqlite")? else {
+        return Ok(PullOutcome::Unchanged(warning));
+    };
+
+    {
+        let mut conn = state.db()?;
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        *conn = Connection::open_in_memory()?;
+    }
+    let _ = fs::remove_file(root.join("project.sqlite-wal"));
+    let _ = fs::remove_file(root.join("project.sqlite-shm"));
+    fs::write(root.join("project.sqlite"), &sqlite_bytes)?;
+    if let Some(project_json) = crate::google_drive::download_file_bytes(app, &folder_id, "project.json")? {
+        fs::write(root.join("project.json"), project_json)?;
+    }
+    if let Some(assets_zip) = crate::google_drive::download_file_bytes(app, &folder_id, "assets.zip")? {
+        crate::google_drive::unzip_bytes(&assets_zip, &root.join("assets"))?;
+    }
+
+    let new_conn = database::open_project_connection(&root.join("project.sqlite"))?;
+    {
+        let mut conn = state.db()?;
+        *conn = new_conn;
+    }
+    filesystem::remember_project(app, &root)?;
+    let lock = SyncLock {
+        machine_id: settings.machine_id.clone(),
+        updated_at: database::now(),
+        book_title: book.title.clone(),
+        machine_name: hostname(),
+    };
+    let _ = crate::google_drive::upload_bytes(
+        app,
+        &folder_id,
+        ".kitap-edit.lock",
+        "application/json",
+        &serde_json::to_vec_pretty(&lock)?,
+    );
+    let remote_updated_at = meta
+        .map(|item| item.updated_at)
+        .unwrap_or_else(database::now);
+    Ok(PullOutcome::Updated {
+        warning: warning.or_else(|| {
+            Some("Google Drive’dan daha yeni kitap içeriği alındı.".to_string())
+        }),
+        remote_updated_at,
+    })
+}
+
+fn conflict_warning_google(
+    app: &AppHandle,
+    folder_id: &str,
+    machine_id: &str,
+    book_title: &str,
+) -> Result<Option<String>, AppError> {
+    let Some(raw) = crate::google_drive::read_text_file(app, folder_id, ".kitap-edit.lock")? else {
+        return Ok(None);
+    };
+    let Ok(lock) = serde_json::from_str::<SyncLock>(&raw) else {
+        return Ok(None);
+    };
+    if lock.machine_id == machine_id {
+        return Ok(None);
+    }
+    let who = if lock.machine_name.trim().is_empty() {
+        "başka bir bilgisayar".to_string()
+    } else {
+        format!("“{}”", lock.machine_name.trim())
+    };
+    let Ok(updated) = chrono::DateTime::parse_from_rfc3339(&lock.updated_at) else {
+        return Ok(Some(format!(
+            "Dikkat: “{book_title}” {who} üzerinde açık görünüyor. Drive senkronunda son yazan kazanır; aynı anda iki PC’de düzenlemeyin."
+        )));
+    };
+    let age = chrono::Utc::now().signed_duration_since(updated.with_timezone(&chrono::Utc));
+    if age.to_std().unwrap_or(Duration::from_secs(0)) < Duration::from_secs(LOCK_STALE_SECS) {
+        Ok(Some(format!(
+            "Dikkat: “{book_title}” şu an {who} bilgisayarında açık. Son kayıt Drive’a yazılır; bu PC’de devam ederseniz diğerindeki değişiklikler kaybolabilir."
+        )))
+    } else {
+        Ok(None)
+    }
 }
 
 fn should_pull(settings: &DriveSyncSettings, meta: Option<&SyncMeta>) -> bool {
@@ -491,6 +786,7 @@ fn hostname() -> String {
 fn load_settings(app: &AppHandle) -> Result<DriveSyncSettings, AppError> {
     let path = filesystem::app_state_file_path(app)?;
     let mut enabled = false;
+    let mut mode = String::from("google");
     let mut folder_path = String::new();
     let mut machine_id = String::new();
     let mut last_push_at = None;
@@ -505,6 +801,11 @@ fn load_settings(app: &AppHandle) -> Result<DriveSyncSettings, AppError> {
                 .get("driveSyncEnabled")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            mode = value
+                .get("driveSyncMode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("google")
+                .to_string();
             folder_path = value
                 .get("driveSyncPath")
                 .and_then(|v| v.as_str())
@@ -536,33 +837,47 @@ fn load_settings(app: &AppHandle) -> Result<DriveSyncSettings, AppError> {
                 .get("driveWarning")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
+            if mode != "google" && mode != "folder" {
+                mode = if folder_path.trim().is_empty() {
+                    "google".into()
+                } else {
+                    "folder".into()
+                };
+            }
         }
     }
-    if machine_id.trim().is_empty() {
-        machine_id = uuid::Uuid::new_v4().to_string();
-        let settings = DriveSyncSettings {
-            enabled,
-            folder_path: folder_path.clone(),
-            machine_id: machine_id.clone(),
-            last_push_at: last_push_at.clone(),
-            last_pull_at: last_pull_at.clone(),
-            last_applied_remote_at: last_applied_remote_at.clone(),
-            remote_slug: remote_slug.clone(),
-            warning: warning.clone(),
-        };
-        save_settings(app, &settings)?;
-        return Ok(settings);
-    }
-    Ok(DriveSyncSettings {
+    let settings = DriveSyncSettings {
         enabled,
+        mode,
         folder_path,
-        machine_id,
+        machine_id: if machine_id.trim().is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            machine_id
+        },
         last_push_at,
         last_pull_at,
         last_applied_remote_at,
         remote_slug,
         warning,
-    })
+        google_email: String::new(),
+        google_connected: false,
+        client_configured: false,
+    };
+    if settings.machine_id != machine_id_from_disk(app).unwrap_or_default() {
+        save_settings(app, &settings)?;
+    }
+    Ok(settings)
+}
+
+fn machine_id_from_disk(app: &AppHandle) -> Option<String> {
+    let path = filesystem::app_state_file_path(app).ok()?;
+    let raw = fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    value
+        .get("machineId")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
 }
 
 fn save_settings(app: &AppHandle, settings: &DriveSyncSettings) -> Result<(), AppError> {
@@ -582,6 +897,10 @@ fn save_settings(app: &AppHandle, settings: &DriveSyncSettings) -> Result<(), Ap
     obj.insert(
         "driveSyncEnabled".into(),
         serde_json::Value::Bool(settings.enabled),
+    );
+    obj.insert(
+        "driveSyncMode".into(),
+        serde_json::Value::String(settings.mode.clone()),
     );
     obj.insert(
         "driveSyncPath".into(),

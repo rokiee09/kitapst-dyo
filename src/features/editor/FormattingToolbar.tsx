@@ -48,7 +48,9 @@ export function FormattingToolbar() {
     state.blocks.find((block) => block.id === state.selectedBlockId),
   );
   const zoom = useUiStore((state) => state.zoom);
+  const zoomFit = useUiStore((state) => state.zoomFit);
   const setZoom = useUiStore((state) => state.setZoom);
+  const setZoomFit = useUiStore((state) => state.setZoomFit);
   const book = useWorkspaceStore((state) => state.book);
   const updateBook = useWorkspaceStore((state) => state.updateBook);
 
@@ -307,17 +309,30 @@ export function FormattingToolbar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-2">
+        <span className="hidden text-[10px] text-[#8aa0b8] sm:inline" title="Sayfa her zaman 760px; dar alanda Sığdır küçültür">
+          Sayfa 760px
+        </span>
         <select
           className="h-8 rounded-md border border-[#1c314c] bg-[#102038] px-2 text-xs text-white"
-          value={zoom}
-          onChange={(event) => setZoom(Number(event.target.value))}
-          title="Yakınlaştırma"
+          value={zoomFit ? "fit" : String(zoom)}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === "fit") {
+              setZoomFit(true);
+              return;
+            }
+            setZoom(Number(value));
+          }}
+          title="Yakınlaştırma — Sığdır: sayfayı yazma alanına sığdırır"
         >
-          <option value={75}>%75</option>
-          <option value={100}>%100</option>
-          <option value={125}>%125</option>
-          <option value={150}>%150</option>
+          <option value="fit">Sığdır</option>
+          <option value="50">%50</option>
+          <option value="75">%75</option>
+          <option value="90">%90</option>
+          <option value="100">%100</option>
+          <option value="125">%125</option>
+          <option value="150">%150</option>
         </select>
       </div>
     </div>

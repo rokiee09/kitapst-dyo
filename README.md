@@ -43,4 +43,5 @@ npm run test
 ## Yeni bölüm ve Drive senkronu
 
 - Yeni üst düzey bölüm oluşturulunca altında **Önsöz**, **Giriş** ve **İçindekiler** sayfaları otomatik gelir; kitap kökündeki İçindekiler listesi de güncellenir.
-- **Ayarlar → Çoklu çalışma (Drive klasörü)** ile Google Drive masaüstü klasörünü seç. Kaydettiğin içerik o klasöre yazılır; başka bilgisayarda aynı klasör seçilince uygulama açılışında güncel kitap alınır. Aynı anda iki kişi düzenlemesin.
+- **Ayarlar → Çoklu çalışma (Google Drive)** ile Google hesabına OAuth ile giriş (`drive.file`). Uygulama kendi “Kitap Stüdyosu” klasörünü oluşturur; aynı hesabı iki PC’de kullanın. Kurulum: [docs/GOOGLE_DRIVE_OAUTH.md](docs/GOOGLE_DRIVE_OAUTH.md). Gizlilik metni: [docs/privacy-policy.html](docs/privacy-policy.html) (codeba.dev’e koyup Cloud Console’a yapıştırın).
+- Gelişmiş seçenek olarak eski masaüstü klasör yolu yöntemi de duruyor. Aynı anda iki kişi yazmasın; son kayıt geçerli olur.

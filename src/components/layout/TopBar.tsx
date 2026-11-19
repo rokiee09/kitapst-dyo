@@ -50,13 +50,13 @@ export function TopBar() {
   const openBookSettings = useUiStore((state) => state.openBookSettings);
 
   return (
-    <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-[#1c314c] bg-[#0c1829] px-3">
+    <header className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-[#1c314c] bg-[#0c1829] px-3">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-fuchsia-500 to-pink-600 text-white shadow">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-fuchsia-500 to-pink-600 text-white shadow">
           <BookOpen size={18} />
         </div>
-        <div className="min-w-0">
-          <div className="text-[13px] font-bold tracking-wide">{tr.appName.toLocaleUpperCase("tr")}</div>
+        <div className="min-w-0 max-w-[180px]">
+          <div className="truncate text-[13px] font-bold tracking-wide">{tr.appName.toLocaleUpperCase("tr")}</div>
           <div className="truncate text-[11px] text-[#8aa0b8]">{book?.title || tr.subtitle}</div>
         </div>
         <FileMenu
@@ -66,25 +66,34 @@ export function TopBar() {
         />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {driveSync?.enabled ? (
           <button
             type="button"
-            className="hidden items-center gap-1.5 text-xs text-emerald-300 md:flex"
+            className="flex items-center gap-1.5 text-xs text-emerald-300"
             onClick={() => setView("settings")}
-            title={driveSync.folderPath || "Drive senkronu açık"}
+            title={
+              driveSync.mode === "google"
+                ? driveSync.googleEmail || "Drive canlı"
+                : driveSync.folderPath || "Drive canlı"
+            }
           >
             <Cloud size={14} />
-            Drive
+            <span className="hidden xl:inline">Drive</span>
           </button>
         ) : null}
         <Button size="sm" variant="secondary" onClick={openProofread} title="Yazım denetimi">
           <SpellCheck size={14} />
-          <span className="hidden lg:inline">Denetim</span>
+          <span className="hidden 2xl:inline">Yazım denetimi</span>
         </Button>
-        <Button size="sm" variant={previewing ? "default" : "secondary"} onClick={togglePreview}>
+        <Button
+          size="sm"
+          variant={previewing ? "default" : "secondary"}
+          onClick={togglePreview}
+          title="Önizleme"
+        >
           <Eye size={14} />
-          Önizle
+          <span className="hidden xl:inline">Önizleme</span>
         </Button>
         {previewing ? (
           <>
@@ -107,9 +116,9 @@ export function TopBar() {
             </PreviewModeButton>
           </>
         ) : null}
-        <Button size="sm" onClick={() => setView("export")}>
+        <Button size="sm" onClick={() => setView("export")} title="Dışa Aktar">
           <Download size={14} />
-          Dışa Aktar
+          <span className="hidden xl:inline">Dışa Aktar</span>
         </Button>
         <SaveStatusBadge />
         <Button size="icon" variant="ghost" onClick={openBookSettings} aria-label="Kitap ayarları" title="Kitap ayarları">
@@ -132,7 +141,7 @@ function FileMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="secondary" className="ml-2">
+        <Button size="sm" variant="secondary" className="ml-2 shrink-0" title="Dosya">
           Dosya
           <ChevronDown size={14} />
         </Button>
@@ -252,7 +261,7 @@ function PreviewModeButton({
   return (
     <Button size="sm" variant={active ? "default" : "secondary"} title={label} onClick={onClick}>
       {children}
-      <span className="hidden xl:inline">{label}</span>
+      <span className="hidden 2xl:inline">{label}</span>
     </Button>
   );
 }

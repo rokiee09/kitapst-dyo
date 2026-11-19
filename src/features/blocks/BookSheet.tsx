@@ -7,6 +7,9 @@ export const BOOK_PAGE_WIDTH = 760;
 /** @deprecated Ortak motor kullanın: resolvePageSpec / pagePixels */
 export const BOOK_PAGE_HEIGHT = 920;
 
+/** Klasik sayfa kenar boşlukları (px) — editör, önizleme ve PDF aynı kaynağı kullanır. */
+export const BOOK_PAGE_PADDING = { top: 56, x: 64, bottom: 96 } as const;
+
 export function BookSheet({
   children,
   book,

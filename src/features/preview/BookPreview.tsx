@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BlockView } from "@/features/blocks/BlockView";
 import { BlockWrapper } from "@/features/blocks/BlockWrapper";
 import { DeviceFrame } from "@/features/preview/DeviceFrame";
-import { BookSheet } from "@/features/blocks/BookSheet";
+import { BOOK_PAGE_HEIGHT, BOOK_PAGE_PADDING, BookSheet } from "@/features/blocks/BookSheet";
 import { PageFitNotice } from "@/features/blocks/PageFitNotice";
 import {
   blockKindLabel,
@@ -61,7 +61,10 @@ export function BookPreview({
     const measure = () => {
       const article = root.querySelector("article");
       const fallback = pagePixels(resolvePageSpec(book));
-      const pageHeight = article ? sheetContentHeight(article) : fallback.contentHeight;
+      const pageHeight = article
+        ? sheetContentHeight(article)
+        : fallback.contentHeight ||
+          BOOK_PAGE_HEIGHT - BOOK_PAGE_PADDING.top - BOOK_PAGE_PADDING.bottom;
       const heights = measureFlowHeights(root);
       const next: Record<string, FitResult> = {};
       for (const source of chapterSources) {
@@ -206,7 +209,7 @@ export function BookPreview({
       ? "min-h-[640px] px-5 pb-16 pt-8"
       : previewMode === "tablet"
         ? "min-h-[720px] px-8 pb-20 pt-10"
-        : "min-h-[920px] max-w-[760px] px-16 pb-24 pt-14";
+        : undefined;
 
   const current = sheets[currentIndex];
 

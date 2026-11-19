@@ -109,7 +109,17 @@ async function dispatch(command: string, args: Record<string, unknown>): Promise
     case "get_drive_sync_settings":
       return getDriveSync();
     case "set_drive_sync_settings":
-      return setDriveSync(Boolean(args.enabled), str(args.folderPath));
+      return setDriveSync(
+        Boolean(args.enabled),
+        str(args.folderPath),
+        nonempty(args.mode) === "folder" ? "folder" : "google",
+      );
+    case "save_google_oauth_client":
+      return saveGoogleOauthClient(str(args.clientId), str(args.clientSecret));
+    case "google_drive_login":
+      return googleDriveLoginPreview();
+    case "google_drive_logout":
+      return googleDriveLogoutPreview();
     case "push_drive_sync":
       return pushDriveSync();
     case "pull_drive_sync":
@@ -1171,6 +1181,7 @@ function getDriveSync() {
     if (raw) {
       const parsed = JSON.parse(raw) as {
         enabled?: boolean;
+        mode?: string;
         folderPath?: string;
         machineId?: string;
         lastPushAt?: string | null;
@@ -1178,9 +1189,13 @@ function getDriveSync() {
         lastAppliedRemoteAt?: string | null;
         remoteSlug?: string;
         warning?: string | null;
+        googleEmail?: string;
+        googleConnected?: boolean;
+        clientConfigured?: boolean;
       };
       return {
         enabled: Boolean(parsed.enabled),
+        mode: parsed.mode === "folder" ? "folder" : "google",
         folderPath: parsed.folderPath ?? "",
         machineId: parsed.machineId || crypto.randomUUID(),
         lastPushAt: parsed.lastPushAt ?? null,
@@ -1188,6 +1203,9 @@ function getDriveSync() {
         lastAppliedRemoteAt: parsed.lastAppliedRemoteAt ?? null,
         remoteSlug: parsed.remoteSlug ?? "",
         warning: parsed.warning ?? null,
+        googleEmail: parsed.googleEmail ?? "",
+        googleConnected: Boolean(parsed.googleConnected),
+        clientConfigured: Boolean(parsed.clientConfigured),
       };
     }
   } catch {
@@ -1195,6 +1213,7 @@ function getDriveSync() {
   }
   return {
     enabled: false,
+    mode: "google",
     folderPath: "",
     machineId: crypto.randomUUID(),
     lastPushAt: null,
@@ -1202,18 +1221,63 @@ function getDriveSync() {
     lastAppliedRemoteAt: null,
     remoteSlug: "",
     warning: null as string | null,
+    googleEmail: "",
+    googleConnected: false,
+    clientConfigured: false,
   };
 }
 
-function setDriveSync(enabled: boolean, folderPath: string) {
+function setDriveSync(enabled: boolean, folderPath: string, mode: "google" | "folder" = "google") {
   const current = getDriveSync();
   const next = {
     ...current,
     enabled,
+    mode,
     folderPath: folderPath.trim(),
     warning: enabled
-      ? "Tarayıcı önizlemesinde Drive klasörüne gerçek dosya yazılmaz; ayar kayıtlı kalır. Masaüstü uygulamada Google Drive klasörüne yazar."
+      ? "Tarayıcı önizlemesinde gerçek Google Drive yazılmaz; masaüstü uygulamayı kullanın."
       : null,
+  };
+  localStorage.setItem(DRIVE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function saveGoogleOauthClient(clientId: string, clientSecret: string) {
+  if (!clientId.trim() || !clientSecret.trim()) {
+    throw new Error("Client ID ve Secret gerekli.");
+  }
+  const next = {
+    ...getDriveSync(),
+    clientConfigured: true,
+    warning: "Tarayıcı önizlemesi: OAuth yalnızca masaüstü uygulamada çalışır.",
+  };
+  localStorage.setItem(DRIVE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function googleDriveLoginPreview() {
+  const current = getDriveSync();
+  if (!current.clientConfigured) {
+    throw new Error("Önce Client ID / Secret kaydedin. Gerçek giriş masaüstü uygulamada.");
+  }
+  const next = {
+    ...current,
+    mode: "google",
+    googleConnected: true,
+    googleEmail: "onizleme@ornek.local",
+    warning: "Tarayıcı önizlemesi: sahte oturum. Masaüstünde Google ile giriş yapın.",
+  };
+  localStorage.setItem(DRIVE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function googleDriveLogoutPreview() {
+  const next = {
+    ...getDriveSync(),
+    googleConnected: false,
+    googleEmail: "",
+    enabled: false,
+    warning: null as string | null,
   };
   localStorage.setItem(DRIVE_KEY, JSON.stringify(next));
   return next;

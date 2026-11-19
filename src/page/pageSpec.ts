@@ -44,7 +44,7 @@ export interface PageBookFields {
   marginLeftMm?: number | null;
 }
 
-/** Mevcut 760×920 px sayfanın mm karşılığı (geriye uyum). */
+/** Mevcut 760×920 px sayfanın mm karşılığı (geriye uyum). BOOK_PAGE_PADDING ile aynı. */
 export const CLASSIC_PAGE: PageSpec = {
   preset: "classic",
   widthMm: pxToMm(760),

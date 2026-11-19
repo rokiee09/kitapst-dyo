@@ -56,7 +56,10 @@ pub fn export_book(
     let output_path = match format.as_str() {
         "html" => export_html(&root, &book, &rendered, include_toc, &slug, &stamp)?,
         "epub" => export_epub(&root, &book, &rendered, include_toc, &slug, &stamp)?,
-        "pdf" => export_pdf(&root, &book, &rendered, include_toc, &slug, &stamp)?,
+        "pdf" => export_pdf(&root, &book, &rendered, include_toc, &slug, &stamp, false)?,
+        "printPdf" | "print-pdf" | "baski" => {
+            export_pdf(&root, &book, &rendered, include_toc, &slug, &stamp, true)?
+        }
         "mobile" => export_mobile(&root, &book, &rendered, include_toc, &slug, &stamp)?,
         other => {
             return Err(AppError::user(
@@ -109,7 +112,10 @@ fn export_html(
 ) -> Result<PathBuf, AppError> {
     let dir = root.join("exports").join("html").join(format!("{slug}-{stamp}"));
     fs::create_dir_all(dir.join("images"))?;
-    let html = build_html(root, book, chapters, include_toc, &dir, "", false)?;
+    let extras = crate::book_extras::parse_book_extras(book);
+    let mut extra = extras.text_styles_css;
+    extra.push_str(&crate::book_extras::cover_theme_css(&extras.cover_theme));
+    let html = build_html(root, book, chapters, include_toc, &dir, &extra, false, false)?;
     let path = dir.join("index.html");
     fs::write(&path, html)?;
     Ok(path)
@@ -184,7 +190,13 @@ fn export_epub(
             }
             xhtml.push_str(&html);
         }
-        xhtml.push_str(&page_number_html(book, book.page_number_start + index as i64));
+        xhtml.push_str(&page_number_html(
+            book,
+            PageMark {
+                n: book.page_number_start + index as i64,
+                roman: database::is_front_matter_title(&chapter.chapter.title),
+            },
+        ));
         xhtml.push_str("</body></html>");
         let href = format!("chapter-{index}.xhtml");
         zip.start_file(format!("EPUB/{href}"), deflated)?;
@@ -245,19 +257,43 @@ fn export_pdf(
     include_toc: bool,
     slug: &str,
     stamp: &impl std::fmt::Display,
+    print_ready: bool,
 ) -> Result<PathBuf, AppError> {
     let work = root
         .join("exports")
         .join("pdf")
-        .join(format!("{slug}-{stamp}-src"));
+        .join(format!(
+            "{slug}-{}-{stamp}-src",
+            if print_ready { "baski" } else { "pdf" }
+        ));
     fs::create_dir_all(work.join("images"))?;
-    let html = build_html(root, book, chapters, include_toc, &work, "", true)?;
+    let extras = crate::book_extras::parse_book_extras(book);
+    let page = crate::page_spec::resolve_page_spec(book);
+    let mut extra_css = extras.text_styles_css.clone();
+    extra_css.push_str(&crate::book_extras::cover_theme_css(&extras.cover_theme));
+    if print_ready {
+        extra_css.push_str(&crate::book_extras::print_bleed_css(
+            extras.bleed_mm,
+            page.width_mm,
+            page.height_mm,
+        ));
+    }
+    let html = build_html(
+        root,
+        book,
+        chapters,
+        include_toc,
+        &work,
+        &extra_css,
+        true,
+        print_ready,
+    )?;
     let html_path = work.join("index.html");
     fs::write(&html_path, html)?;
-    let pdf_path = root
-        .join("exports")
-        .join("pdf")
-        .join(format!("{slug}-{stamp}.pdf"));
+    let pdf_path = root.join("exports").join("pdf").join(format!(
+        "{slug}-{}-{stamp}.pdf",
+        if print_ready { "baski" } else { "pdf" }
+    ));
     fs::create_dir_all(pdf_path.parent().unwrap_or(root))?;
     let temp_dir = std::env::temp_dir().join("kitap-studiosu-pdf");
     let _ = fs::remove_dir_all(&temp_dir);
@@ -398,7 +434,7 @@ fn export_mobile(
         .join("mobile")
         .join(format!("{slug}-{stamp}"));
     fs::create_dir_all(dir.join("images"))?;
-    let html = build_html(root, book, chapters, include_toc, &dir, MOBILE_CSS, false)?;
+    let html = build_html(root, book, chapters, include_toc, &dir, MOBILE_CSS, false, false)?;
     fs::write(dir.join("index.html"), html)?;
     let zip_path = root
         .join("exports")
@@ -484,6 +520,9 @@ fn write_plain_pdf(
         kids.push_str(&format!("{page_id} 0 R"));
     }
 
+    let page_spec = crate::page_spec::resolve_page_spec(book);
+    let media_w = ((page_spec.width_mm * 72.0 / 25.4) * 100.0).round() / 100.0;
+    let media_h = ((page_spec.height_mm * 72.0 / 25.4) * 100.0).round() / 100.0;
     let mut body_objects: Vec<Vec<u8>> = vec![
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         format!("<< /Type /Pages /Kids [{kids}] /Count {page_count} >>").into_bytes(),
@@ -505,7 +544,7 @@ fn write_plain_pdf(
         );
         let content_id = body_objects.len() + 2;
         let page_obj = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 570 690] /Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>"
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {media_w} {media_h}] /Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>"
         );
         body_objects.push(page_obj.into_bytes());
         body_objects.push(content.into_bytes());
@@ -620,64 +659,70 @@ fn build_html(
     out_dir: &Path,
     extra_css: &str,
     paged: bool,
+    print_ready: bool,
 ) -> Result<String, AppError> {
     let mut body = String::new();
-    let mut page = book.page_number_start;
     let mut image_counter = 0usize;
     let _ = include_toc;
-    let add_cover = false;
-    let add_toc = false;
-    if add_cover {
-        body.push_str("<section class=\"cover sheet\">");
-        body.push_str(&format!(
-            "<p class=\"kicker\">Kitap Stüdyosu</p><h1 class=\"title\">{}</h1>",
-            escape_html(&book.title)
-        ));
-        if let Some(subtitle) = book.subtitle.as_deref() {
-            body.push_str(&format!("<p class=\"subtitle\">{}</p>", escape_html(subtitle)));
-        }
-        if let Some(author) = book.author.as_deref() {
-            body.push_str(&format!("<p class=\"author\">{}</p>", escape_html(author)));
-        }
-        body.push_str(&page_number_html(book, page));
-        page += 1;
-        body.push_str("</section>");
-    }
-    if add_toc {
-        body.push_str("<nav class=\"toc sheet\"><h2>İçindekiler</h2><ol>");
-        for chapter in chapters {
-            body.push_str(&format!(
-                "<li><a href=\"#chapter-{}\">{}</a></li>",
-                chapter.chapter.id,
-                escape_html(&chapter_heading(&chapter.chapter))
-            ));
-        }
-        body.push_str("</ol>");
-        body.push_str(&page_number_html(book, page));
-        page += 1;
-        body.push_str("</nav>");
-    }
+    let page_starts = compute_page_starts(book, chapters, paged);
+    let crop = if print_ready {
+        r#"<div class="crop-marks" aria-hidden="true"><span class="crop-tl-h"></span><span class="crop-tl-v"></span><span class="crop-tr-h"></span><span class="crop-tr-v"></span><span class="crop-bl-h"></span><span class="crop-bl-v"></span><span class="crop-br-h"></span><span class="crop-br-v"></span></div>"#
+    } else {
+        ""
+    };
     for chapter in chapters.iter() {
-        let slices = split_export_pages(&chapter.blocks, true);
-        for slice in slices.iter() {
-            body.push_str(&format!(
-                "<section class=\"sheet\" id=\"chapter-{}\">",
-                chapter.chapter.id
-            ));
+        let slices = split_export_pages(&chapter.blocks, paged);
+        let start = page_starts
+            .get(&chapter.chapter.id)
+            .copied()
+            .unwrap_or(PageMark {
+                n: book.page_number_start,
+                roman: false,
+            });
+        let is_cover = chapter.chapter.title == "Kapak";
+        let is_toc = chapter.chapter.title == "İçindekiler";
+        for (slice_index, slice) in slices.iter().enumerate() {
+            let mark = PageMark {
+                n: start.n + slice_index as i64,
+                roman: start.roman,
+            };
+            let sheet_class = if is_cover {
+                "sheet cover"
+            } else if is_toc {
+                "sheet toc"
+            } else {
+                "sheet"
+            };
+            let id_attr = if slice_index == 0 {
+                format!(" id=\"chapter-{}\"", chapter.chapter.id)
+            } else {
+                String::new()
+            };
+            body.push_str(&format!("<section class=\"{sheet_class}\"{id_attr}>"));
+            body.push_str(crop);
             let mut caption_counts = CaptionCounts::default();
-            for block in slice {
-                if paged && hidden_in_pdf(block) {
-                    continue;
+            if is_toc && slice_index == 0 {
+                body.push_str(&render_toc_nav(chapters, &page_starts));
+            } else {
+                for block in slice {
+                    if paged && hidden_in_pdf(block) {
+                        continue;
+                    }
+                    let (html, _) = render_block_html(
+                        root,
+                        block,
+                        Some(out_dir),
+                        &mut image_counter,
+                        &mut caption_counts,
+                    )?;
+                    body.push_str(&html);
                 }
-                let (html, _) =
-                    render_block_html(root, block, Some(out_dir), &mut image_counter, &mut caption_counts)?;
-                body.push_str(&html);
             }
-            body.push_str(&page_number_html(book, page));
-            page += 1;
+            body.push_str(&page_number_html(book, mark));
             body.push_str("</section>");
         }
     }
+    let extras = crate::book_extras::parse_book_extras(book);
     let theme_css = if paged {
         format!(
             "html,body{{background:{};color:{};font-family:{};line-height:{}}}",
@@ -695,7 +740,19 @@ fn build_html(
             book.line_height
         )
     };
-    let base_css = if paged { PDF_CSS } else { HTML_CSS };
+    let page = crate::page_spec::resolve_page_spec(book);
+    let sheet_css = if print_ready {
+        String::new()
+    } else {
+        crate::page_spec::build_sheet_css(&page, paged)
+    };
+    let styles_css = extras.text_styles_css;
+    let cover_css = crate::book_extras::cover_theme_css(&extras.cover_theme);
+    let base_css = if paged {
+        format!("{sheet_css}{PDF_BLOCK_CSS}{styles_css}{cover_css}")
+    } else {
+        format!("{HTML_SHELL_CSS}{sheet_css}{HTML_BLOCK_CSS}{styles_css}{cover_css}")
+    };
     Ok(format!(
         r#"<!doctype html>
 <html lang="tr">
@@ -715,6 +772,79 @@ fn build_html(
         extra_css,
         body
     ))
+}
+
+#[derive(Clone, Copy)]
+struct PageMark {
+    n: i64,
+    roman: bool,
+}
+
+fn compute_page_starts(
+    book: &Book,
+    chapters: &[RenderedChapter],
+    paged: bool,
+) -> std::collections::HashMap<String, PageMark> {
+    let mut map = std::collections::HashMap::new();
+    let mut roman_n = 1i64;
+    let mut arabic_n = book.page_number_start.max(0);
+    for chapter in chapters {
+        let pages = split_export_pages(&chapter.blocks, paged).len().max(1) as i64;
+        let front = database::is_front_matter_title(&chapter.chapter.title);
+        if front {
+            map.insert(
+                chapter.chapter.id.clone(),
+                PageMark {
+                    n: roman_n,
+                    roman: true,
+                },
+            );
+            roman_n += pages;
+        } else {
+            map.insert(
+                chapter.chapter.id.clone(),
+                PageMark {
+                    n: arabic_n,
+                    roman: false,
+                },
+            );
+            arabic_n += pages;
+        }
+    }
+    map
+}
+
+fn render_toc_nav(
+    chapters: &[RenderedChapter],
+    page_starts: &std::collections::HashMap<String, PageMark>,
+) -> String {
+    let mut html = String::from("<h1 style=\"text-align:center\">İçindekiler</h1><ol class=\"toc-list\">");
+    for chapter in chapters {
+        if database::is_front_matter_title(&chapter.chapter.title) {
+            continue;
+        }
+        let mark = page_starts
+            .get(&chapter.chapter.id)
+            .copied()
+            .unwrap_or(PageMark {
+                n: 1,
+                roman: false,
+            });
+        let label = chapter_heading(&chapter.chapter);
+        let page_label = if mark.roman {
+            crate::book_extras::to_roman(mark.n)
+        } else {
+            mark.n.to_string()
+        };
+        html.push_str(&format!(
+            "<li class=\"toc-item\"><a href=\"#chapter-{id}\"><span class=\"toc-title\">{title}</span><span class=\"toc-dots\"></span><span class=\"toc-page\">{page}</span></a></li>",
+            id = chapter.chapter.id,
+            title = escape_html(&label),
+            page = escape_html(&page_label)
+        ));
+    }
+    html.push_str("</ol>");
+    html
 }
 
 #[allow(dead_code)]
@@ -759,7 +889,7 @@ fn chapter_heading(chapter: &Chapter) -> String {
     }
 }
 
-fn page_number_html(book: &Book, number: i64) -> String {
+fn page_number_html(book: &Book, mark: PageMark) -> String {
     if !book.page_numbers {
         return String::new();
     }
@@ -768,7 +898,12 @@ fn page_number_html(book: &Book, number: i64) -> String {
         "right" => "right",
         _ => "center",
     };
-    format!(r#"<div class="page-num" style="text-align:{align}">{number}</div>"#)
+    let label = if mark.roman {
+        crate::book_extras::to_roman(mark.n)
+    } else {
+        mark.n.to_string()
+    };
+    format!(r#"<div class="page-num" style="text-align:{align}">{label}</div>"#)
 }
 
 fn render_block_html(
@@ -850,7 +985,7 @@ fn render_block_html(
         }
         "video" => {
             captions.video += 1;
-            render_video_html(block, captions.video)?
+            render_video_html(root, block, out_dir, image_counter, &mut images, captions.video)?
         }
         "qr" => {
             captions.qr += 1;
@@ -950,20 +1085,30 @@ fn wrap_block_style(block: &ContentBlock, inner: String) -> String {
     } else {
         String::new()
     };
-    if placement == "free" && block.block_type != "qr" {
+    let is_free = matches!(
+        placement,
+        "free" | "freeFront" | "freeBehind"
+    );
+    if is_free && block.block_type != "qr" {
         let x = style.get("x").and_then(|value| value.as_f64()).unwrap_or(6.0);
         let y = style.get("y").and_then(|value| value.as_f64()).unwrap_or(8.0);
         let width = style
             .get("width")
             .and_then(|value| value.as_f64())
             .unwrap_or(88.0);
+        let z = if placement == "freeBehind" { 1 } else { 4 };
         css.push_str(&format!(
-            "position:absolute;left:{x}%;top:{y}%;width:{width}%;box-sizing:border-box;"
+            "position:absolute;left:{x}%;top:{y}%;width:{width}%;box-sizing:border-box;z-index:{z};"
         ));
         return format!(
             r#"<div class="textbox" data-block-kind="{}" style="{css}"{marker_attr}>{inner}</div>"#,
             escape_html(&block.block_type)
         );
+    }
+    if placement == "wrapLeft" {
+        css.push_str("float:left;clear:left;width:46%;max-width:46%;margin:0 16px 12px 0;");
+    } else if placement == "wrapRight" {
+        css.push_str("float:right;clear:right;width:46%;max-width:46%;margin:0 0 12px 16px;");
     }
     if block.block_type == "qr" {
         css.push_str("float:right;clear:right;width:180px;max-width:42%;margin:0 0 16px 16px;");
@@ -981,7 +1126,14 @@ struct CaptionCounts {
     qr: usize,
 }
 
-fn render_video_html(block: &ContentBlock, index: usize) -> Result<String, AppError> {
+fn render_video_html(
+    root: &Path,
+    block: &ContentBlock,
+    out_dir: Option<&Path>,
+    image_counter: &mut usize,
+    images: &mut Vec<(String, Vec<u8>, String)>,
+    index: usize,
+) -> Result<String, AppError> {
     let title = block
         .data
         .get("title")
@@ -993,11 +1145,11 @@ fn render_video_html(block: &ContentBlock, index: usize) -> Result<String, AppEr
         .and_then(|value| value.as_str())
         .unwrap_or("")
         .trim();
-    let tiled = block
+    let generate_qr = block
         .data
-        .get("tile")
+        .get("generateQr")
         .and_then(|value| value.as_bool())
-        .unwrap_or(false);
+        .unwrap_or(true);
     let width = block
         .data
         .get("width")
@@ -1014,24 +1166,74 @@ fn render_video_html(block: &ContentBlock, index: usize) -> Result<String, AppEr
         "right" => "0 0 12px auto",
         _ => "0 auto 12px",
     };
-    let style = format!(
-        "width:{width}%;max-width:100%;margin:{margin};{}",
-        if tiled {
-            "overflow:hidden;"
-        } else {
-            ""
+
+    let mut poster_html = String::new();
+    if let Some(rel) = block
+        .data
+        .get("thumbnailPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        if let Some((bytes, ext, original_name)) = read_image(root, rel)? {
+            *image_counter += 1;
+            let filename = format!("img-{image_counter}.{ext}", image_counter = *image_counter);
+            let media = match ext.as_str() {
+                "png" => "image/png",
+                "webp" => "image/webp",
+                "svg" => "image/svg+xml",
+                _ => "image/jpeg",
+            };
+            let src_name = if let Some(dir) = out_dir {
+                fs::create_dir_all(dir.join("images"))?;
+                let dest_name = if original_name.is_empty() {
+                    filename.clone()
+                } else {
+                    original_name
+                };
+                fs::write(dir.join("images").join(&dest_name), &bytes)?;
+                dest_name
+            } else {
+                images.push((filename.clone(), bytes, media.to_string()));
+                filename
+            };
+            poster_html = format!(
+                r#"<img class="video-poster" src="images/{}" alt="{}" />"#,
+                escape_html(&src_name),
+                escape_html(title)
+            );
         }
-    );
+    }
+    if poster_html.is_empty() {
+        poster_html = format!(
+            r#"<div class="video-poster-fallback">{}</div>"#,
+            escape_html(title)
+        );
+    }
+
+    let mut qr_html = String::new();
+    if generate_qr && !url.is_empty() {
+        let figure = qr_figure(url, None, out_dir, image_counter, images)?;
+        if !figure.is_empty() {
+            qr_html = format!(r#"<div class="video-qr">{figure}</div>"#);
+        }
+    }
+
     let mut html = format!(
-        r#"<div class="video-block{}" style="{}">"#,
-        if tiled { " video-tile" } else { "" },
-        style
+        r#"<div class="video-block video-print" style="width:{width}%;max-width:100%;margin:{margin};">"#
     );
-    html.push_str(&format!(r#"<p><strong>{}</strong></p>"#, escape_html(title)));
+    html.push_str(r#"<div class="video-print-row">"#);
+    html.push_str(&format!(r#"<div class="video-poster-wrap">{poster_html}</div>"#));
+    if !qr_html.is_empty() {
+        html.push_str(&qr_html);
+    }
+    html.push_str("</div>");
+    html.push_str(&format!(
+        r#"<p class="video-title"><strong>{}</strong></p>"#,
+        escape_html(title)
+    ));
     if !url.is_empty() {
         html.push_str(&format!(
-            r#"<p><a href="{}">{}</a></p>"#,
-            escape_html(url),
+            r#"<p class="video-link"><a href="{}">Videoyu aç</a></p>"#,
             escape_html(url)
         ));
     }
@@ -1345,15 +1547,16 @@ fn escape_xml(value: &str) -> String {
     escape_html(value).replace('\'', "&apos;")
 }
 
-const HTML_CSS: &str = r#"
+const HTML_SHELL_CSS: &str = r#"
 html,body{margin:0;padding:0;background:#dbe4ef;color:#152033}
 body{font-family:Segoe UI,system-ui,sans-serif;padding:24px 12px 48px;line-height:1.5}
-.sheet{position:relative;width:760px;min-height:920px;margin:24px auto;padding:56px 64px 96px;box-sizing:border-box;background:#fff;box-shadow:0 12px 36px rgba(15,23,42,.18);overflow:hidden}
+"#;
+
+const HTML_BLOCK_CSS: &str = r#"
 .sheet::after{content:"";display:block;clear:both}
 .title{font-size:36px;margin:0}
 .subtitle,.author,.kicker{color:#5b6578}
 .toc{background:#f8fafc;padding:16px 24px;border-radius:12px}
-.page-num{position:absolute;bottom:28px;left:64px;right:64px;font-size:12px;letter-spacing:.08em;opacity:.7}
 img{max-width:100%;height:auto}
 [data-block-kind="qr"]{float:right;clear:right;width:180px;max-width:42%;margin:0 0 16px 16px}
 figure.qr{display:flex;flex-direction:column;align-items:center;margin:0;text-align:center;break-inside:avoid}
@@ -1362,6 +1565,14 @@ figure.qr{display:flex;flex-direction:column;align-items:center;margin:0;text-al
 figure.qr figcaption,.media-cap{font-size:11px;color:#6b6478;margin-top:6px;text-align:center;line-height:1.35}
 .video-block{margin:16px 0;clear:both}
 .video-tile{overflow:hidden}
+.video-print-row{display:flex;gap:16px;align-items:flex-start}
+.video-poster-wrap{flex:1;min-width:0}
+.video-poster{width:100%;height:auto;max-height:280px;object-fit:cover;border-radius:8px}
+.video-poster-fallback{display:flex;align-items:center;justify-content:center;min-height:140px;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:12px;text-align:center}
+.video-qr{flex:0 0 140px}
+.video-qr .qr-svg,.video-qr .qr-svg svg{width:120px;height:120px}
+.video-title{margin:8px 0 0;font-size:14px}
+.video-link{margin:4px 0 0;font-size:12px}
 table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #dbe4ef;padding:8px;text-align:left}
 ul{list-style:disc;padding-left:1.4em}
@@ -1380,22 +1591,31 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 }
 "#;
 
-const PDF_CSS: &str = r#"
-@page{size:201.17mm 243.33mm;margin:0}
-html,body{margin:0;padding:0;width:760px;height:920px;background:#fff;color:#152033;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.sheet{width:760px;height:920px;max-height:920px;box-sizing:border-box;padding:56px 64px 112px;overflow:hidden;page-break-after:always;page-break-inside:avoid;break-after:page;break-inside:avoid;position:relative}
-.sheet:last-child{page-break-after:auto;break-after:auto}
+const PDF_BLOCK_CSS: &str = r#"
 .sheet::after{content:"";display:block;clear:both}
 [data-block-kind="qr"]{float:right;clear:right;width:160px;margin:0 0 12px 12px}
 .sheet img,.sheet p,.sheet h1,.sheet h2,.sheet h3,.sheet ul,.sheet ol,.sheet table{max-width:100%}
 h1,h2,h3{font-size:22px;margin:0 0 12px}
 .title{font-size:36px;margin:0}
 .subtitle,.author,.kicker{color:#5b6578}
-.page-num{position:absolute;bottom:28px;left:64px;right:64px;font-size:12px;letter-spacing:.08em;opacity:.7}
+.toc-list{list-style:none;padding:0;margin:12px 0}
+.toc-item{margin:0 0 8px}
+.toc-item a{display:flex;align-items:baseline;gap:8px;color:inherit;text-decoration:none}
+.toc-title{flex:0 1 auto}
+.toc-dots{flex:1 1 auto;border-bottom:1px dotted #94a3b8;min-width:24px;transform:translateY(-4px)}
+.toc-page{flex:0 0 auto;font-variant-numeric:tabular-nums}
 img{max-width:100%;max-height:360px;height:auto;object-fit:contain}
 figure.qr{display:flex;flex-direction:column;align-items:center;margin:16px 0;text-align:center;break-inside:avoid}
 .qr-svg,figure.qr svg{width:160px;height:160px;background:#fff}
 figure.qr figcaption,.media-cap{font-size:11px;color:#6b6478;margin-top:6px;text-align:center}
+.video-print-row{display:flex;gap:12px;align-items:flex-start;break-inside:avoid}
+.video-poster-wrap{flex:1;min-width:0}
+.video-poster{width:100%;height:auto;max-height:240px;object-fit:cover}
+.video-poster-fallback{display:flex;align-items:center;justify-content:center;min-height:120px;background:#111;color:#fff;padding:10px;text-align:center}
+.video-qr{flex:0 0 120px}
+.video-qr .qr-svg,.video-qr .qr-svg svg{width:110px;height:110px}
+.video-title{margin:6px 0 0;font-size:13px}
+.video-link{margin:2px 0 0;font-size:11px}
 table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #dbe4ef;padding:8px;text-align:left}
 ul{list-style:disc;padding-left:1.4em}

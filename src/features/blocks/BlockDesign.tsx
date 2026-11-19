@@ -256,7 +256,7 @@ export function BlockDesign() {
                     onClick={() =>
                       patchStyle({
                         ...style,
-                        placement: "free",
+                        placement: style.placement === "freeBehind" ? "freeBehind" : "freeFront",
                         x: preset.x,
                         y: style.y ?? preset.y,
                         width: preset.width,

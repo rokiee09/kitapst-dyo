@@ -39,6 +39,7 @@ interface WorkspaceState {
   duplicateChapter: (id: string) => Promise<void>;
   moveChapter: (id: string, direction: "up" | "down") => Promise<void>;
   reorderChapters: (parentId: string | null, orderedIds: string[]) => Promise<void>;
+  setChapterNumber: (id: string, number: string) => Promise<void>;
   refreshStats: () => Promise<void>;
   updateBook: (payload: {
     title: string;
@@ -56,6 +57,14 @@ interface WorkspaceState {
     pageNumberAlign?: "left" | "center" | "right";
     pageNumberStart?: number;
     lineHeight?: number;
+    pageSizePreset?: string;
+    pageWidthMm?: number;
+    pageHeightMm?: number;
+    marginTopMm?: number;
+    marginRightMm?: number;
+    marginBottomMm?: number;
+    marginLeftMm?: number;
+    bookExtrasJson?: string;
   }, options?: { silent?: boolean }) => Promise<void>;
   createVersion: (version: string, changelog: string) => Promise<void>;
   restoreVersion: (versionId: string) => Promise<void>;
@@ -199,6 +208,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  setChapterNumber: async (id, number) => {
+    try {
+      const chapters = await chapterService.setNumber(id, number);
+      set({ chapters });
+      void get().pushDriveSync();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sayfa numarası güncellenemedi.");
+    }
+  },
+
   refreshStats: async () => {
     const book = get().book;
     if (!book) return;
@@ -320,6 +339,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const result = await projectService.pollDriveSync();
       set({ driveSync: result.settings });
+      if (result.settings.warning) {
+        toast.warning(result.settings.warning, { duration: 12000, id: "drive-lock-warning" });
+      }
       if (!result.changed || !result.snapshot) return;
       const currentId = get().selectedChapterId;
       get().applySnapshot(result.snapshot);
@@ -353,7 +375,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const settings = await projectService.pushDriveSync();
       set({ driveSync: settings });
-      if (settings.warning) toast.message(settings.warning);
+      if (settings.warning) {
+        toast.warning(settings.warning, { duration: 12000 });
+      }
     } catch {
       // Drive kapalıysa veya klasör yoksa sessiz geç.
     }

@@ -1,5 +1,6 @@
 mod assets;
 mod backup;
+mod book_extras;
 mod commands;
 mod database;
 mod error;
@@ -9,6 +10,7 @@ mod filesystem;
 mod frontmatter;
 mod library;
 mod models;
+mod page_spec;
 mod proofread;
 mod state;
 mod sync;
@@ -39,6 +41,7 @@ pub fn run() {
             commands::duplicate_chapter,
             commands::move_chapter,
             commands::reorder_chapters,
+            commands::set_chapter_number,
             commands::set_active_chapter,
             commands::list_blocks,
             commands::create_block,

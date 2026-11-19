@@ -78,6 +78,14 @@ export const bookService = {
     pageNumberAlign?: "left" | "center" | "right";
     pageNumberStart?: number;
     lineHeight?: number;
+    pageSizePreset?: string;
+    pageWidthMm?: number;
+    pageHeightMm?: number;
+    marginTopMm?: number;
+    marginRightMm?: number;
+    marginBottomMm?: number;
+    marginLeftMm?: number;
+    bookExtrasJson?: string;
   }): Promise<Book> {
     return invokeCommand<Book>("update_book", { payload });
   },
@@ -108,6 +116,9 @@ export const chapterService = {
     return invokeCommand<Chapter[]>("reorder_chapters", {
       payload: { parentId, orderedIds },
     });
+  },
+  setNumber(id: string, number: string): Promise<Chapter[]> {
+    return invokeCommand<Chapter[]>("set_chapter_number", { id, number });
   },
   setActive(chapterId: string): Promise<ContentBlock[]> {
     return invokeCommand<ContentBlock[]>("set_active_chapter", { chapterId });
@@ -162,7 +173,9 @@ export const versionService = {
 };
 
 export const exportService = {
-  run(format: "html" | "epub" | "pdf" | "mobile"): Promise<{ format: string; outputPath: string }> {
+  run(
+    format: "html" | "epub" | "pdf" | "printPdf" | "mobile",
+  ): Promise<{ format: string; outputPath: string }> {
     return invokeCommand("export_book", { payload: { format, includeToc: true } });
   },
 };

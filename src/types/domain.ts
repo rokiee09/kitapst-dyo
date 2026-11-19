@@ -47,10 +47,20 @@ export interface BlockStyle {
   marginTop?: number;
   marginBottom?: number;
   listMarker?: string;
-  placement?: "flow" | "free";
+  /** inline | wrapLeft | wrapRight | freeFront | freeBehind (+ eski free/flow) */
+  placement?: "flow" | "free" | "inline" | "wrapLeft" | "wrapRight" | "freeFront" | "freeBehind";
   x?: number;
   y?: number;
   width?: number;
+  /** Sayfa içerik alanına göre mm (Word çapa modeli). */
+  xMm?: number;
+  yMm?: number;
+  widthMm?: number;
+  heightMm?: number;
+  /** Serbest görselin bağlı olduğu paragraf/başlık. */
+  anchorBlockId?: string | null;
+  /** Kitap geneli metin stili (Word içe aktarım). */
+  textStyle?: string;
 }
 
 export interface ContentBlock {
@@ -90,6 +100,14 @@ export interface Book {
   pageNumberAlign: "left" | "center" | "right";
   pageNumberStart: number;
   lineHeight: number;
+  pageSizePreset: string;
+  pageWidthMm: number;
+  pageHeightMm: number;
+  marginTopMm: number;
+  marginRightMm: number;
+  marginBottomMm: number;
+  marginLeftMm: number;
+  bookExtrasJson: string;
   createdAt: string;
   updatedAt: string;
 }

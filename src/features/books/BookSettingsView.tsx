@@ -8,8 +8,18 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { updateBookSchema } from "@/types/schemas";
 import { assetService } from "@/services/assets";
 import { pickLocalFile } from "@/utils/filePicker";
+import {
+  CLASSIC_PAGE,
+  PAGE_PRESETS,
+  PAGE_PRESET_OPTIONS,
+  normalizePreset,
+  pagePixels,
+  resolvePageSpec,
+  type PageSizePreset,
+} from "@/page/pageSpec";
+import { BookStylesEditor } from "@/features/books/BookStylesEditor";
 
-export function BookSettingsView() {
+export function BookSettingsView({ embedded = false }: { embedded?: boolean }) {
   const book = useWorkspaceStore((state) => state.book);
   const versions = useWorkspaceStore((state) => state.versions);
   const updateBook = useWorkspaceStore((state) => state.updateBook);
@@ -52,9 +62,10 @@ export function BookSettingsView() {
   if (!book) return null;
 
   return (
-    <div className="h-full overflow-auto bg-[#0d1524] p-8">
+    <div className={embedded ? "bg-[#0d1524] p-6" : "h-full overflow-auto bg-[#0d1524] p-8"}>
       <div className="mx-auto max-w-2xl space-y-4">
-        <h1 className="text-xl font-semibold">Kitap bilgileri</h1>
+        {embedded ? null : <h1 className="text-xl font-semibold">Kitap bilgileri</h1>}
+        {embedded ? <p className="text-sm text-[#8aa0b8]">Kitap bilgileri ve sayfa ölçüleri</p> : null}
         <Field label="Kitap adı" value={title} onChange={setTitle} />
         <Field label="Alt başlık" value={subtitle} onChange={setSubtitle} />
         <Field label="Yazar" value={author} onChange={setAuthor} />
@@ -111,6 +122,17 @@ export function BookSettingsView() {
             />
           </div>
         </div>
+        <PageSizeCard
+          book={book}
+          title={title}
+          subtitle={subtitle}
+          author={author}
+          description={description}
+          language={language}
+          isbn={isbn}
+          publisher={publisher}
+          updateBook={updateBook}
+        />
         <div className="rounded-md border border-[#1c2a44] p-3">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -209,6 +231,7 @@ export function BookSettingsView() {
             Numara sayfa altına yazılır. Bölüm sırasına göre artar; başlangıcı değiştirebilirsin.
           </p>
         </div>
+        <BookStylesEditor book={book} />
         <div>
           <Label>Kapak</Label>
           {coverUrl ? <img src={coverUrl} alt="Kapak" className="mt-2 h-36 rounded object-cover" /> : null}
@@ -286,6 +309,162 @@ function Field({
     <div>
       <Label>{label}</Label>
       <Input className="mt-1" value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  );
+}
+
+function PageSizeCard({
+  book,
+  title,
+  subtitle,
+  author,
+  description,
+  language,
+  isbn,
+  publisher,
+  updateBook,
+}: {
+  book: NonNullable<ReturnType<typeof useWorkspaceStore.getState>["book"]>;
+  title: string;
+  subtitle: string;
+  author: string;
+  description: string;
+  language: string;
+  isbn: string;
+  publisher: string;
+  updateBook: ReturnType<typeof useWorkspaceStore.getState>["updateBook"];
+}) {
+  const spec = resolvePageSpec(book);
+  const px = pagePixels(spec);
+
+  function savePage(patch: {
+    pageSizePreset?: PageSizePreset;
+    pageWidthMm?: number;
+    pageHeightMm?: number;
+    marginTopMm?: number;
+    marginRightMm?: number;
+    marginBottomMm?: number;
+    marginLeftMm?: number;
+  }) {
+    void updateBook(
+      {
+        title,
+        subtitle,
+        author,
+        description,
+        language,
+        isbn,
+        publisher,
+        pageColor: book.pageColor,
+        inkColor: book.inkColor,
+        fontFamily: book.fontFamily,
+        pageNumbers: book.pageNumbers,
+        pageNumberAlign: book.pageNumberAlign,
+        pageNumberStart: book.pageNumberStart,
+        lineHeight: book.lineHeight,
+        pageSizePreset: patch.pageSizePreset ?? book.pageSizePreset,
+        pageWidthMm: patch.pageWidthMm ?? book.pageWidthMm,
+        pageHeightMm: patch.pageHeightMm ?? book.pageHeightMm,
+        marginTopMm: patch.marginTopMm ?? book.marginTopMm,
+        marginRightMm: patch.marginRightMm ?? book.marginRightMm,
+        marginBottomMm: patch.marginBottomMm ?? book.marginBottomMm,
+        marginLeftMm: patch.marginLeftMm ?? book.marginLeftMm,
+      },
+      { silent: true },
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-[#1c2a44] p-3 space-y-3">
+      <div>
+        <Label>Sayfa boyutu</Label>
+        <select
+          className="mt-1 h-8 w-full rounded-md border border-[#1c2a44] bg-[#070b14] px-2 text-sm"
+          value={normalizePreset(book.pageSizePreset)}
+          onChange={(event) => {
+            const preset = normalizePreset(event.target.value);
+            const next = preset === "custom" ? CLASSIC_PAGE : PAGE_PRESETS[preset];
+            savePage({
+              pageSizePreset: preset,
+              pageWidthMm: next.widthMm,
+              pageHeightMm: next.heightMm,
+              marginTopMm: next.margins.top,
+              marginRightMm: next.margins.right,
+              marginBottomMm: next.margins.bottom,
+              marginLeftMm: next.margins.left,
+            });
+          }}
+        >
+          {PAGE_PRESET_OPTIONS.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-[11px] text-[#8aa0bd]">
+          Editör, önizleme, PDF ve HTML aynı mm tanımını kullanır ({Math.round(px.width)}×
+          {Math.round(px.height)} px @ 96 dpi).
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <MmField
+          label="Genişlik (mm)"
+          value={book.pageWidthMm ?? spec.widthMm}
+          onChange={(value) => savePage({ pageSizePreset: "custom", pageWidthMm: value })}
+        />
+        <MmField
+          label="Yükseklik (mm)"
+          value={book.pageHeightMm ?? spec.heightMm}
+          onChange={(value) => savePage({ pageSizePreset: "custom", pageHeightMm: value })}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <MmField
+          label="Üst boşluk (mm)"
+          value={book.marginTopMm ?? spec.margins.top}
+          onChange={(value) => savePage({ marginTopMm: value })}
+        />
+        <MmField
+          label="Alt boşluk (mm)"
+          value={book.marginBottomMm ?? spec.margins.bottom}
+          onChange={(value) => savePage({ marginBottomMm: value })}
+        />
+        <MmField
+          label="Sol boşluk (mm)"
+          value={book.marginLeftMm ?? spec.margins.left}
+          onChange={(value) => savePage({ marginLeftMm: value })}
+        />
+        <MmField
+          label="Sağ boşluk (mm)"
+          value={book.marginRightMm ?? spec.margins.right}
+          onChange={(value) => savePage({ marginRightMm: value })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MmField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <Input
+        className="mt-1"
+        type="number"
+        min={0}
+        max={500}
+        step={0.1}
+        value={Number(value.toFixed(2))}
+        onChange={(event) => onChange(Number(event.target.value) || 0)}
+      />
     </div>
   );
 }

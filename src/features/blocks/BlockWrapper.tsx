@@ -1,6 +1,13 @@
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { useEffect } from "react";
-import { Copy, GripVertical, Move, Plus, Trash2 } from "lucide-react";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { Copy, GripVertical, Move, Trash2 } from "lucide-react";
+import { InsertBlockButton } from "@/features/blocks/InsertBlockButton";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
@@ -14,7 +21,9 @@ import {
   isFree,
   snapPercent,
 } from "@/features/blocks/blockStyle";
+import { findAnchorBlockId, percentToMm, snapGuides } from "@/features/blocks/mediaLayout";
 import { useEditorStore } from "@/stores/editorStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { BlockStyle, ContentBlock } from "@/types/domain";
 
 interface BlockWrapperProps {
@@ -28,20 +37,44 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
   const selected = useEditorStore((state) => state.selectedBlockId === block.id);
   const locateHere = useEditorStore((state) => state.locateQuery?.blockId === block.id);
   const free = isFree(block.style);
+  const book = useWorkspaceStore((state) => state.book);
+  const [guides, setGuides] = useState<{ v?: number; h?: number; page: Element | null }>({
+    page: null,
+  });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: block.id,
     disabled: !editable || free,
   });
 
+  const behind = block.style.placement === "freeBehind";
   const style: CSSProperties = {
     ...blockBoxStyle(block.style, free, block.type),
     transform: free ? undefined : CSS.Transform.toString(transform),
     transition: free ? undefined : transition,
-    zIndex: free ? (selected ? 12 : 6) : undefined,
+    zIndex: free ? (selected ? (behind ? 3 : 12) : behind ? 1 : 6) : undefined,
   };
 
   function currentStyle(): BlockStyle {
     return useEditorStore.getState().blocks.find((item) => item.id === block.id)?.style ?? block.style;
+  }
+
+  function freePlacement(styleNow: BlockStyle): BlockStyle["placement"] {
+    if (styleNow.placement === "freeBehind") return "freeBehind";
+    return "freeFront";
+  }
+
+  function withMm(styleNow: BlockStyle, boxed: { x: number; y: number; width: number }): BlockStyle {
+    const mm = percentToMm(boxed.x, boxed.y, boxed.width, book);
+    const blocks = useEditorStore.getState().blocks;
+    return {
+      ...styleNow,
+      placement: freePlacement(styleNow),
+      ...boxed,
+      xMm: mm.xMm,
+      yMm: mm.yMm,
+      widthMm: mm.widthMm,
+      anchorBlockId: styleNow.anchorBlockId ?? findAnchorBlockId(blocks, block.id),
+    };
   }
 
   function patchStyle(next: BlockStyle) {
@@ -51,12 +84,34 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
 
   function enableFree() {
     const index = useEditorStore.getState().blocks.findIndex((item) => item.id === block.id);
-    patchStyle({ ...currentStyle(), ...defaultFreeStyle(block.type, Math.max(0, index)) });
+    const base = defaultFreeStyle(block.type, Math.max(0, index));
+    const blocks = useEditorStore.getState().blocks;
+    const mm = percentToMm(base.x ?? 58, base.y ?? 8, base.width ?? 36, book);
+    patchStyle({
+      ...currentStyle(),
+      ...base,
+      xMm: mm.xMm,
+      yMm: mm.yMm,
+      widthMm: mm.widthMm,
+      anchorBlockId: findAnchorBlockId(blocks, block.id),
+    });
   }
 
   function disableFree() {
     const styleNow = currentStyle();
-    patchStyle({ ...styleNow, placement: "flow", x: undefined, y: undefined, width: undefined });
+    const media = block.type === "image" || block.type === "video";
+    patchStyle({
+      ...styleNow,
+      placement: media ? "inline" : "flow",
+      x: undefined,
+      y: undefined,
+      width: undefined,
+      xMm: undefined,
+      yMm: undefined,
+      widthMm: undefined,
+      heightMm: undefined,
+      anchorBlockId: undefined,
+    });
   }
 
   function startMove(event: ReactPointerEvent<HTMLElement>) {
@@ -81,16 +136,19 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
       const rect = surface.getBoundingClientRect();
       const dx = ((moveEvent.clientX - startX) / Math.max(rect.width, 1)) * 100;
       const dy = ((moveEvent.clientY - startY) / Math.max(rect.height, 1)) * 100;
-      const boxed = clampBox(snapPercent(origX + dx), snapPercent(origY + dy), origW);
+      const snapped = snapGuides(origX + dx, origY + dy, origW);
+      const boxed = clampBox(snapped.x, snapped.y, origW);
       const styleNow = currentStyle();
       useEditorStore.getState().updateBlockLocal(block.id, {
-        style: { ...styleNow, placement: "free", ...boxed },
+        style: withMm(styleNow, boxed),
       });
+      setGuides({ ...snapped.guides, page: surface });
     }
 
     function onUp() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      setGuides({ page: null });
       useEditorStore.getState().scheduleSave(block.id);
     }
 
@@ -116,16 +174,19 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
       const dx = ((moveEvent.clientX - startX) / Math.max(rect.width, 1)) * 100;
       const width = edge === "w" ? origW - dx : origW + dx;
       const x = edge === "w" ? origX + dx : origX;
-      const boxed = clampBox(snapPercent(x), origY, snapPercent(width));
+      const snapped = snapGuides(x, origY, width);
+      const boxed = clampBox(snapPercent(snapped.x), origY, snapPercent(width));
       const styleNow = currentStyle();
       useEditorStore.getState().updateBlockLocal(block.id, {
-        style: { ...styleNow, placement: "free", ...boxed },
+        style: withMm(styleNow, boxed),
       });
+      setGuides({ v: snapped.guides.v, h: snapped.guides.h, page: surface });
     }
 
     function onUp() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      setGuides({ page: null });
       useEditorStore.getState().scheduleSave(block.id);
     }
 
@@ -148,16 +209,37 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
       if (event.key === "ArrowRight") x += step;
       if (event.key === "ArrowUp") y -= step;
       if (event.key === "ArrowDown") y += step;
-      patchStyle({ ...styleNow, ...clampBox(x, y, width) });
+      patchStyle(withMm(styleNow, clampBox(x, y, width)));
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editable, selected, free, block.id]);
+  }, [editable, selected, free, block.id, book]);
 
   useEffect(() => {
     if (!locateHere) return;
     document.getElementById(`block-${block.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [locateHere, block.id]);
+
+  const guidePortal =
+    guides.page && (guides.v != null || guides.h != null)
+      ? createPortal(
+          <>
+            {guides.v != null ? (
+              <div
+                className="pointer-events-none absolute top-0 bottom-0 z-50 w-px bg-sky-500/80"
+                style={{ left: `${guides.v}%` }}
+              />
+            ) : null}
+            {guides.h != null ? (
+              <div
+                className="pointer-events-none absolute left-0 right-0 z-50 h-px bg-sky-500/80"
+                style={{ top: `${guides.h}%` }}
+              />
+            ) : null}
+          </>,
+          guides.page,
+        )
+      : null;
 
   return (
     <div
@@ -165,6 +247,7 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
       style={style}
       data-list-marker={block.type === "heading" ? undefined : block.style.listMarker?.trim() || undefined}
       data-block-kind={block.type}
+      data-text-style={block.style.textStyle}
       data-heading-size={block.style.fontSize ? undefined : effectiveHeadingSize(block.style, block.data)}
       data-block-font={block.style.fontSize ? "" : undefined}
       data-spaced={block.style.marginTop != null || block.style.marginBottom != null ? "" : undefined}
@@ -188,6 +271,7 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
       onClick={() => useEditorStore.getState().selectBlock(block.id)}
       onPointerDown={free && editable ? startMove : undefined}
     >
+      {guidePortal}
       {pageFit ? (
         <p className="pointer-events-none absolute -top-3 left-2 z-10 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
           {pageFit === "next-page" ? "Sonraki sayfaya alındı, düzen korundu" : "Sayfadan uzun, bölünmeden bırakıldı"}
@@ -209,7 +293,7 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
 
       <div>{children}</div>
 
-      {editable && free && selected ? (
+      {editable && free && selected && block.type !== "image" && block.type !== "video" ? (
         <>
           <button
             type="button"
@@ -232,7 +316,7 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
         </>
       ) : null}
 
-      {editable && selected ? (
+      {editable && selected && block.type !== "image" && block.type !== "video" ? (
         <div className="absolute -top-9 left-0 z-30 flex gap-1 rounded bg-white/95 p-0.5 shadow">
           {canFloat(block.type) ? (
             <Button
@@ -245,14 +329,7 @@ export function BlockWrapper({ block, children, editable, pageFit }: BlockWrappe
               {free ? "Akış" : "Taşı"}
             </Button>
           ) : null}
-          <Button
-            size="icon"
-            variant="paper"
-            onClick={() => void useEditorStore.getState().addBlock("paragraph", block.id)}
-            aria-label="Blok ekle"
-          >
-            <Plus size={12} />
-          </Button>
+          <InsertBlockButton afterBlockId={block.id} size="icon" />
           <Button
             size="icon"
             variant="paper"

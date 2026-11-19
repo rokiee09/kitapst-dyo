@@ -103,6 +103,8 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     migrate_v4(conn)?;
     migrate_v5(conn)?;
     migrate_v6(conn)?;
+    migrate_v7(conn)?;
+    migrate_v8(conn)?;
     Ok(())
 }
 
@@ -243,5 +245,70 @@ fn migrate_v6(conn: &Connection) -> Result<(), AppError> {
         )?;
     }
     ensure_migration(conn, 6)?;
+    Ok(())
+}
+
+fn migrate_v7(conn: &Connection) -> Result<(), AppError> {
+    // Klasik 760×920 px → mm (96 dpi)
+    let w = 760.0_f64 * 25.4 / 96.0;
+    let h = 920.0_f64 * 25.4 / 96.0;
+    let mt = 56.0_f64 * 25.4 / 96.0;
+    let mr = 64.0_f64 * 25.4 / 96.0;
+    let mb = 96.0_f64 * 25.4 / 96.0;
+    let ml = 64.0_f64 * 25.4 / 96.0;
+    if !column_exists(conn, "book", "page_size_preset") {
+        conn.execute(
+            "ALTER TABLE book ADD COLUMN page_size_preset TEXT NOT NULL DEFAULT 'classic'",
+            [],
+        )?;
+    }
+    if !column_exists(conn, "book", "page_width_mm") {
+        conn.execute(
+            &format!("ALTER TABLE book ADD COLUMN page_width_mm REAL NOT NULL DEFAULT {w}"),
+            [],
+        )?;
+    }
+    if !column_exists(conn, "book", "page_height_mm") {
+        conn.execute(
+            &format!("ALTER TABLE book ADD COLUMN page_height_mm REAL NOT NULL DEFAULT {h}"),
+            [],
+        )?;
+    }
+    if !column_exists(conn, "book", "margin_top_mm") {
+        conn.execute(
+            &format!("ALTER TABLE book ADD COLUMN margin_top_mm REAL NOT NULL DEFAULT {mt}"),
+            [],
+        )?;
+    }
+    if !column_exists(conn, "book", "margin_right_mm") {
+        conn.execute(
+            &format!("ALTER TABLE book ADD COLUMN margin_right_mm REAL NOT NULL DEFAULT {mr}"),
+            [],
+        )?;
+    }
+    if !column_exists(conn, "book", "margin_bottom_mm") {
+        conn.execute(
+            &format!("ALTER TABLE book ADD COLUMN margin_bottom_mm REAL NOT NULL DEFAULT {mb}"),
+            [],
+        )?;
+    }
+    if !column_exists(conn, "book", "margin_left_mm") {
+        conn.execute(
+            &format!("ALTER TABLE book ADD COLUMN margin_left_mm REAL NOT NULL DEFAULT {ml}"),
+            [],
+        )?;
+    }
+    ensure_migration(conn, 7)?;
+    Ok(())
+}
+
+fn migrate_v8(conn: &Connection) -> Result<(), AppError> {
+    if !column_exists(conn, "book", "book_extras_json") {
+        conn.execute(
+            "ALTER TABLE book ADD COLUMN book_extras_json TEXT NOT NULL DEFAULT '{}'",
+            [],
+        )?;
+    }
+    ensure_migration(conn, 8)?;
     Ok(())
 }

@@ -8,7 +8,7 @@ use crate::models::{
 use crate::state::AppState;
 use rusqlite::{params, Connection};
 use serde_json::json;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[tauri::command]
 pub fn get_workspace(
@@ -56,8 +56,15 @@ pub fn update_book(
     let conn = state.db()?;
     let book = database::get_book(&conn)?;
     let ts = now();
+    let page_size_preset = payload
+        .page_size_preset
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| matches!(*value, "classic" | "a4" | "a5" | "book1724" | "custom"))
+        .unwrap_or(&book.page_size_preset)
+        .to_string();
     conn.execute(
-        "UPDATE book SET title = ?1, subtitle = ?2, author = ?3, description = ?4, language = ?5, isbn = ?6, publisher = ?7, cover_asset_id = ?8, page_color = ?9, ink_color = ?10, font_family = ?11, page_numbers = ?12, page_number_align = ?13, page_number_start = ?14, line_height = ?15, updated_at = ?16 WHERE id = ?17",
+        "UPDATE book SET title = ?1, subtitle = ?2, author = ?3, description = ?4, language = ?5, isbn = ?6, publisher = ?7, cover_asset_id = ?8, page_color = ?9, ink_color = ?10, font_family = ?11, page_numbers = ?12, page_number_align = ?13, page_number_start = ?14, line_height = ?15, page_size_preset = ?16, page_width_mm = ?17, page_height_mm = ?18, margin_top_mm = ?19, margin_right_mm = ?20, margin_bottom_mm = ?21, margin_left_mm = ?22, book_extras_json = ?23, updated_at = ?24 WHERE id = ?25",
         params![
             payload.title.trim(),
             empty_to_none(payload.subtitle),
@@ -101,6 +108,37 @@ pub fn update_book(
                 .line_height
                 .unwrap_or(book.line_height)
                 .clamp(1.0, 3.0),
+            page_size_preset,
+            payload
+                .page_width_mm
+                .unwrap_or(book.page_width_mm)
+                .clamp(80.0, 400.0),
+            payload
+                .page_height_mm
+                .unwrap_or(book.page_height_mm)
+                .clamp(80.0, 500.0),
+            payload
+                .margin_top_mm
+                .unwrap_or(book.margin_top_mm)
+                .clamp(0.0, 80.0),
+            payload
+                .margin_right_mm
+                .unwrap_or(book.margin_right_mm)
+                .clamp(0.0, 80.0),
+            payload
+                .margin_bottom_mm
+                .unwrap_or(book.margin_bottom_mm)
+                .clamp(0.0, 80.0),
+            payload
+                .margin_left_mm
+                .unwrap_or(book.margin_left_mm)
+                .clamp(0.0, 80.0),
+            payload
+                .book_extras_json
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(&book.book_extras_json),
             ts,
             book.id
         ],
@@ -277,6 +315,7 @@ pub fn move_chapter(
 ) -> Result<Vec<Chapter>, AppError> {
     let conn = state.db()?;
     let chapter = database::get_chapter(&conn, &id)?;
+    let book = database::get_book(&conn)?;
     let siblings = sibling_orders(&conn, &chapter.book_id, chapter.parent_id.as_deref())?;
     let index = siblings
         .iter()
@@ -294,6 +333,22 @@ pub fn move_chapter(
         }
     };
     if let Some(target) = swap_with {
+        if chapter.parent_id.is_none() && crate::book_extras::front_matter_locked(&book) {
+            let other_id = &siblings[target].0;
+            let other_title: String = conn.query_row(
+                "SELECT title FROM chapter WHERE id = ?1",
+                [other_id],
+                |row| row.get(0),
+            )?;
+            if database::is_front_matter_title(&chapter.title)
+                || database::is_front_matter_title(&other_title)
+            {
+                return Err(AppError::user(
+                    "Ön madde sırası kilitli (Kapak → Önsöz → İçindekiler → Giriş).",
+                    "front matter locked",
+                ));
+            }
+        }
         let (other_id, other_order) = &siblings[target];
         let current_order = chapter.order;
         conn.execute(
@@ -334,6 +389,34 @@ pub fn reorder_chapters(
             "reorder chapter mismatch",
         ));
     }
+    if payload.parent_id.is_none() && crate::book_extras::front_matter_locked(&book) {
+        let titles: HashMap<String, String> = conn
+            .prepare("SELECT id, title FROM chapter WHERE book_id = ?1 AND parent_id IS NULL")?
+            .query_map([&book.id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .filter_map(Result::ok)
+            .collect();
+        let prev_front: Vec<&str> = siblings
+            .iter()
+            .filter_map(|(id, _)| titles.get(id))
+            .filter(|title| database::is_front_matter_title(title))
+            .map(|title| title.as_str())
+            .collect();
+        let next_front: Vec<&str> = payload
+            .ordered_ids
+            .iter()
+            .filter_map(|id| titles.get(id))
+            .filter(|title| database::is_front_matter_title(title))
+            .map(|title| title.as_str())
+            .collect();
+        if prev_front != next_front {
+            return Err(AppError::user(
+                "Ön madde sırası kilitli (Kapak → Önsöz → İçindekiler → Giriş).",
+                "front matter locked",
+            ));
+        }
+    }
     let ts = now();
     for (index, id) in payload.ordered_ids.iter().enumerate() {
         conn.execute(
@@ -348,6 +431,73 @@ pub fn reorder_chapters(
         let _ = crate::frontmatter::refresh_book_toc(&conn, &book.id);
     }
     database::list_chapters(&conn, &book.id)
+}
+
+#[tauri::command]
+pub fn set_chapter_number(
+    state: tauri::State<AppState>,
+    id: String,
+    number: String,
+) -> Result<Vec<Chapter>, AppError> {
+    let conn = state.db()?;
+    let chapter = database::get_chapter(&conn, &id)?;
+    if database::is_front_matter_title(&chapter.title) {
+        return Err(AppError::user(
+            "Kapak / önsöz / giriş / içindekiler numaralanmaz.",
+            "front matter number",
+        ));
+    }
+    let trimmed = number.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::user(
+            "Sayfa numarası boş olamaz.",
+            "empty chapter number",
+        ));
+    }
+    let target = trimmed
+        .rsplit('.')
+        .next()
+        .and_then(|part| part.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| {
+            AppError::user(
+                "Geçerli bir sayfa numarası yazın (ör. 2 veya 4.1).",
+                format!("number={trimmed}"),
+            )
+        })?;
+
+    let siblings = sibling_orders(&conn, &chapter.book_id, chapter.parent_id.as_deref())?;
+    let mut front: Vec<String> = Vec::new();
+    let mut numbered: Vec<String> = Vec::new();
+    for (sibling_id, _) in &siblings {
+        let title: String = conn.query_row(
+            "SELECT title FROM chapter WHERE id = ?1",
+            [sibling_id],
+            |row| row.get(0),
+        )?;
+        if database::is_front_matter_title(&title) {
+            front.push(sibling_id.clone());
+        } else if sibling_id != &id {
+            numbered.push(sibling_id.clone());
+        }
+    }
+    let insert_at = (target - 1).min(numbered.len());
+    numbered.insert(insert_at, id.clone());
+    let ordered_ids: Vec<String> = front.into_iter().chain(numbered).collect();
+    let ts = now();
+    for (index, sibling_id) in ordered_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE chapter SET sort_order = ?1, updated_at = ?2 WHERE id = ?3",
+            params![index as i64, ts, sibling_id],
+        )?;
+    }
+    database::renumber_book_chapters(&conn, &chapter.book_id)?;
+    if let Some(parent) = chapter.parent_id.as_deref() {
+        let _ = crate::frontmatter::refresh_chapter_toc(&conn, &chapter.book_id, parent);
+    } else {
+        let _ = crate::frontmatter::refresh_book_toc(&conn, &chapter.book_id);
+    }
+    database::list_chapters(&conn, &chapter.book_id)
 }
 
 #[tauri::command]

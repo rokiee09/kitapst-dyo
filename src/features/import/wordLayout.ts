@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import type { BlockStyle } from "@/types/domain";
+import { readDocxMeta, resolveThemeFont, type ThemeFonts } from "@/features/import/docxMeta";
 
 const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
@@ -21,6 +22,9 @@ interface Props {
   align?: BlockStyle["align"];
   font?: string;
   fontSizePt?: number;
+  color?: string;
+  bold?: boolean;
+  italic?: boolean;
   spacing?: Spacing;
   indent?: IndentTwips;
 }
@@ -63,11 +67,13 @@ interface WordNode {
 export interface WordLayout {
   styleMap: string[];
   transformDocument: (document: unknown) => unknown;
+  theme: ThemeFonts;
 }
 
 export async function readWordLayout(bytes: Uint8Array): Promise<WordLayout> {
   const zip = await JSZip.loadAsync(bytes);
-  const styles = parseStyles((await zip.file("word/styles.xml")?.async("string")) ?? "");
+  const meta = await readDocxMeta(bytes);
+  const styles = parseStyles((await zip.file("word/styles.xml")?.async("string")) ?? "", meta.theme);
   const extras = parseExtras((await zip.file("word/document.xml")?.async("string")) ?? "");
   const styleMap = [
     "p[style-name='Title'] => h1:fresh",
@@ -114,16 +120,22 @@ export async function readWordLayout(bytes: Uint8Array): Promise<WordLayout> {
 
   function stampRun(run: WordNode): WordNode {
     const char = run.styleId ? resolveStyle(styles.character, run.styleId) : {};
+    // Stil zinciri: varsayılan → stil → basedOn → doğrudan biçim (doğrudan en üstte)
     const font = run.font || char.font || activeProps.font;
     const sizePt =
       (typeof run.fontSize === "number" ? run.fontSize : undefined) ?? char.fontSizePt ?? activeProps.fontSizePt;
-    const css = runCss(run, font, sizePt);
+    const color = char.color || activeProps.color;
+    const bold = Boolean(run.isBold) || Boolean(char.bold) || Boolean(activeProps.bold);
+    const italic = Boolean(run.isItalic) || Boolean(char.italic) || Boolean(activeProps.italic);
+    const css = runCss(run, font, sizePt, color, bold, italic);
     if (!css) return run;
     const name = runStyleName(css);
     return {
       ...run,
       font: font ?? null,
       fontSize: sizePt ?? null,
+      isBold: bold || run.isBold,
+      isItalic: italic || run.isItalic,
       styleId: name,
       styleName: name,
     };
@@ -210,10 +222,12 @@ export async function readWordLayout(bytes: Uint8Array): Promise<WordLayout> {
     const css = paragraphCss({ align, indent, spacing, font });
     const level = headingLevel(paragraph.styleId, paragraph.styleName);
     const quote = isQuote(paragraph.styleId, paragraph.styleName);
+    const caption = isCaption(paragraph.styleId, paragraph.styleName);
     const title = !level && isTitle(paragraph.styleId, paragraph.styleName);
     const subtitle = !level && !title && isSubtitle(paragraph.styleId, paragraph.styleName);
     let tag = "p";
     if (quote) tag = "blockquote";
+    else if (caption) tag = "figcaption";
     else if (level) tag = `h${Math.min(level, 3)}`;
     else if (title) tag = "h1";
     else if (subtitle) tag = "h2";
@@ -262,6 +276,7 @@ export async function readWordLayout(bytes: Uint8Array): Promise<WordLayout> {
 
   return {
     styleMap,
+    theme: meta.theme,
     transformDocument: (document: unknown) => {
       const doc = document as WordNode;
       extraCursor = 0;
@@ -289,13 +304,21 @@ function countParagraphs(node: WordNode | undefined): number {
   return count;
 }
 
-function runCss(run: WordNode, font?: string, sizePt?: number): string {
+function runCss(
+  run: WordNode,
+  font?: string,
+  sizePt?: number,
+  color?: string,
+  bold?: boolean,
+  italic?: boolean,
+): string {
   const parts: string[] = [];
   if (font) parts.push(`font-family:${fontCss(font)}`);
   if (sizePt) parts.push(`font-size:${pointsToPx(sizePt)}px`);
+  if (color) parts.push(`color:${color}`);
   const name = run.styleName ?? "";
-  if (!run.isBold && /strong/i.test(name)) parts.push("font-weight:bold");
-  if (!run.isItalic && /emphasis/i.test(name)) parts.push("font-style:italic");
+  if (bold || (!run.isBold && /strong/i.test(name))) parts.push("font-weight:bold");
+  if (italic || (!run.isItalic && /emphasis/i.test(name))) parts.push("font-style:italic");
   return parts.join(";");
 }
 
@@ -383,6 +406,9 @@ function mergeProps(base: Props, extra: Props): Props {
     align: extra.align ?? base.align,
     font: extra.font ?? base.font,
     fontSizePt: extra.fontSizePt ?? base.fontSizePt,
+    color: extra.color ?? base.color,
+    bold: extra.bold ?? base.bold,
+    italic: extra.italic ?? base.italic,
     spacing: mergeSpacing(base.spacing, extra.spacing),
     indent: mergeIndent(base.indent, extra.indent),
   };
@@ -408,7 +434,7 @@ function mergeIndent(base?: IndentTwips, extra?: IndentTwips): IndentTwips | und
   };
 }
 
-function parseStyles(xml: string): StyleTable {
+function parseStyles(xml: string, theme: ThemeFonts): StyleTable {
   const table: StyleTable = { defaults: {}, paragraph: new Map(), character: new Map() };
   const doc = parseXml(xml);
   if (!doc) return table;
@@ -416,7 +442,7 @@ function parseStyles(xml: string): StyleTable {
   if (defaults) {
     const rPr = firstChild(firstChild(defaults, "rPrDefault"), "rPr");
     const pPr = firstChild(firstChild(defaults, "pPrDefault"), "pPr");
-    table.defaults = mergeProps(readPPr(pPr), readRPr(rPr));
+    table.defaults = mergeProps(readPPr(pPr), readRPr(rPr, theme));
   }
   for (const styleEl of allDesc(doc, "style")) {
     const type = attr(styleEl, "type");
@@ -425,7 +451,7 @@ function parseStyles(xml: string): StyleTable {
     const raw: RawStyle = {
       basedOn: attr(firstChild(styleEl, "basedOn"), "val"),
       ...readPPr(firstChild(styleEl, "pPr")),
-      ...readRPr(firstChild(styleEl, "rPr")),
+      ...readRPr(firstChild(styleEl, "rPr"), theme),
     };
     const bucket = type === "character" ? table.character : table.paragraph;
     bucket.set(id, raw);
@@ -475,20 +501,29 @@ function readPPr(pPr: Element | null): Props {
   };
 }
 
-function readRPr(rPr: Element | null): Props {
+function readRPr(rPr: Element | null, theme: ThemeFonts): Props {
   if (!rPr) return {};
   const fonts = firstChild(rPr, "rFonts");
   const sz = num(attr(firstChild(rPr, "sz"), "val"));
+  const colorVal = attr(firstChild(rPr, "color"), "val");
+  const color =
+    colorVal && colorVal !== "auto"
+      ? colorVal.startsWith("#")
+        ? colorVal
+        : `#${colorVal}`
+      : undefined;
+  const bold = Boolean(firstChild(rPr, "b")) && attr(firstChild(rPr, "b"), "val") !== "0";
+  const italic = Boolean(firstChild(rPr, "i")) && attr(firstChild(rPr, "i"), "val") !== "0";
   return {
-    font: attr(fonts, "ascii") || attr(fonts, "hAnsi") || themeFont(attr(fonts, "asciiTheme") || attr(fonts, "hAnsiTheme")),
+    font:
+      attr(fonts, "ascii") ||
+      attr(fonts, "hAnsi") ||
+      resolveThemeFont(theme, attr(fonts, "asciiTheme") || attr(fonts, "hAnsiTheme")),
     fontSizePt: sz != null ? sz / 2 : undefined,
+    color,
+    bold: bold || undefined,
+    italic: italic || undefined,
   };
-}
-
-function themeFont(theme: string | undefined): string | undefined {
-  if (theme === "minorHAnsi" || theme === "minorAscii") return "Calibri";
-  if (theme === "majorHAnsi" || theme === "majorAscii") return "Calibri Light";
-  return;
 }
 
 function parseXml(xml: string): Document | null {
@@ -563,6 +598,12 @@ function isSubtitle(styleId?: string | null, styleName?: string | null): boolean
 
 function isQuote(styleId?: string | null, styleName?: string | null): boolean {
   return [styleId, styleName].some((value) => !!value && /quote|al[ıi]nt[ıi]|citation/i.test(value));
+}
+
+function isCaption(styleId?: string | null, styleName?: string | null): boolean {
+  return [styleId, styleName].some(
+    (value) => !!value && /caption|alt\s*yaz|altyaz[ıi]|figcaption/i.test(value),
+  );
 }
 
 function fontCss(name: string): string {

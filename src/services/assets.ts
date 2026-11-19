@@ -10,6 +10,11 @@ export const assetService = {
       payload: { sourcePath, assetType },
     });
   },
+  importBytes(bytes: number[], filename: string, assetType: "image" = "image"): Promise<Asset> {
+    return invokeCommand<Asset>("import_asset_bytes", {
+      payload: { bytes, filename, assetType },
+    });
+  },
   list(assetType?: "image" | "video" | "file"): Promise<Asset[]> {
     return invokeCommand<Asset[]>("list_assets", { assetType: assetType ?? null });
   },

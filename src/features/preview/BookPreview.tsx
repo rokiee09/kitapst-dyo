@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BlockView } from "@/features/blocks/BlockView";
 import { BlockWrapper } from "@/features/blocks/BlockWrapper";
 import { DeviceFrame } from "@/features/preview/DeviceFrame";
-import { BOOK_PAGE_HEIGHT, BookSheet } from "@/features/blocks/BookSheet";
+import { BookSheet } from "@/features/blocks/BookSheet";
 import { PageFitNotice } from "@/features/blocks/PageFitNotice";
 import {
   blockKindLabel,
@@ -20,6 +20,7 @@ import { useEditorStore } from "@/stores/editorStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { buildChapterTree, displayChapterLabel, flattenChapterTree } from "@/utils/chapterTree";
 import { pageNumberAlignClass } from "@/utils/pageNumbers";
+import { pagePixels, resolvePageSpec } from "@/page/pageSpec";
 import { cn } from "@/lib/utils";
 import type { Chapter, ContentBlock, PreviewMode } from "@/types/domain";
 
@@ -59,7 +60,8 @@ export function BookPreview({
     if (!root) return;
     const measure = () => {
       const article = root.querySelector("article");
-      const pageHeight = article ? sheetContentHeight(article) : BOOK_PAGE_HEIGHT - 56 - 96;
+      const fallback = pagePixels(resolvePageSpec(book));
+      const pageHeight = article ? sheetContentHeight(article) : fallback.contentHeight;
       const heights = measureFlowHeights(root);
       const next: Record<string, FitResult> = {};
       for (const source of chapterSources) {
@@ -241,6 +243,7 @@ export function BookPreview({
               <PageFitNotice warnings={sheet.warnings} />
               <BookSheet
                 id={sheetId}
+                book={book}
                 dark={dark}
                 clip={false}
                 quietOverflow

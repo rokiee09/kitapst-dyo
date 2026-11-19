@@ -1,4 +1,3 @@
-import { BookSettingsView } from "@/features/books/BookSettingsView";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -7,15 +6,24 @@ import { Label } from "@/components/ui/label";
 import { folderService, projectService, type DriveSyncSettings } from "@/services";
 import { pickLocalFile, pickLocalFolder } from "@/utils/filePicker";
 import { useEditorStore } from "@/stores/editorStore";
+import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { aiProofread } from "@/features/proofread/aiProofread";
 import { persistProofreadAiSettings, loadProofreadAiSettings } from "@/features/proofread/settings";
 
 export function SettingsView() {
   return (
-    <div className="h-full overflow-auto bg-[#0d1524]">
-      <BookSettingsView />
-      <div className="mx-auto max-w-2xl space-y-4 px-8 pb-8">
+    <div className="h-full overflow-auto bg-[#0d1524] p-8">
+      <div className="mx-auto max-w-2xl space-y-4">
+        <div>
+          <h1 className="text-xl font-semibold">Uygulama ayarları</h1>
+          <p className="mt-1 text-sm text-[#8aa0bd]">
+            Kitap bilgileri için üst çubuktaki dişliyi veya Dosya → Kitap ayarları’nı kullanın.
+          </p>
+          <Button className="mt-3" variant="secondary" onClick={() => useUiStore.getState().openBookSettings()}>
+            Kitap ayarlarını aç
+          </Button>
+        </div>
         <DriveSyncCard />
         <ProofreadAiCard />
         <div className="rounded-lg border border-[#1c2a44] bg-[#070b14] p-4">
@@ -107,7 +115,7 @@ function DriveSyncCard() {
       setEnabled(saved.enabled);
       setFolderPath(saved.folderPath);
       useWorkspaceStore.setState({ driveSync: saved });
-      if (saved.warning) toast.message(saved.warning);
+      if (saved.warning) toast.warning(saved.warning, { duration: 12000 });
       else toast.success(saved.enabled ? "Drive senkronu açıldı ve kitap yedeklendi." : "Drive senkronu kapandı.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Drive ayarı kaydedilemedi.");

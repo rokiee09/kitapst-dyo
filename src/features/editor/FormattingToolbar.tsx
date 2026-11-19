@@ -5,11 +5,11 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
-  ImageIcon,
   Italic,
   Link2,
   List,
   ListOrdered,
+  MoreHorizontal,
   Redo2,
   Underline as UnderlineIcon,
   Undo2,
@@ -17,13 +17,30 @@ import {
 import { tr } from "@/i18n/tr";
 import { cn } from "@/lib/utils";
 import { applyLink } from "@/utils/links";
-import { PAGE_FONTS, LINE_SPACINGS, LIST_MARKER_OPTIONS, HEADING_SIZE_OPTIONS, effectiveHeadingSize, parseHeadingSize } from "@/features/blocks/blockStyle";
+import {
+  PAGE_FONTS,
+  LINE_SPACINGS,
+  LIST_MARKER_OPTIONS,
+  HEADING_SIZE_OPTIONS,
+  effectiveHeadingSize,
+  parseHeadingSize,
+} from "@/features/blocks/blockStyle";
+import { InsertBlockButton } from "@/features/blocks/InsertBlockButton";
 import { SpecialCharsButton } from "@/features/editor/SpecialCharsButton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useEditorStore } from "@/stores/editorStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { emptyDoc } from "@/utils/tiptap";
 import { PageNumberControls } from "@/features/editor/PageNumberControls";
+import { Button } from "@/components/ui/button";
 
 export function FormattingToolbar() {
   const editor = useEditorStore((state) => state.activeEditor);
@@ -47,7 +64,14 @@ export function FormattingToolbar() {
     });
     if (level) {
       const blocks = useEditorStore.getState().blocks.map((block) =>
-        block.id === selected.id ? { ...block, type: "heading" as const, data, style: { ...block.style, headingSize: level, listMarker: undefined } } : block,
+        block.id === selected.id
+          ? {
+              ...block,
+              type: "heading" as const,
+              data,
+              style: { ...block.style, headingSize: level, listMarker: undefined },
+            }
+          : block,
       );
       useEditorStore.setState({ blocks });
       editor?.chain().focus().liftListItem("listItem").setHeading({ level }).run();
@@ -70,9 +94,11 @@ export function FormattingToolbar() {
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-[#1c314c] bg-[#0c1829] px-3">
+      <InsertBlockButton afterBlockId={selected?.id ?? null} />
+      <span className="mx-1 h-4 w-px bg-[#1c314c]" />
       <select
         className="h-8 rounded-md border border-[#1c314c] bg-[#102038] px-2 text-xs text-white"
-        title="Başlık boyutu (isteğe bağlı)"
+        title="Başlık boyutu"
         value={headingValue}
         onChange={(event) => applyHeadingSize(parseHeadingSize(event.target.value))}
       >
@@ -82,7 +108,6 @@ export function FormattingToolbar() {
           </option>
         ))}
       </select>
-      <span className="mx-1 h-4 w-px bg-[#1c314c]" />
       <ToolButton label={tr.editor.bold} active={editor?.isActive("bold")} onClick={() => editor?.chain().focus().toggleBold().run()}>
         <Bold size={15} />
       </ToolButton>
@@ -100,90 +125,29 @@ export function FormattingToolbar() {
       <ToolButton
         label={tr.editor.bulletList}
         active={editor?.isActive("bulletList")}
-        onClick={() => {
-          if (editor?.isActive("heading")) {
-            editor.chain().focus().setParagraph().toggleBulletList().run();
-            if (selected) {
-              const blocks = useEditorStore.getState().blocks.map((block) =>
-                block.id === selected.id
-                  ? { ...block, type: "paragraph" as const, style: { ...selected.style, headingSize: undefined } }
-                  : block,
-              );
-              useEditorStore.setState({ blocks });
-            }
-            return;
-          }
-          editor?.chain().focus().toggleBulletList().run();
-        }}
+        onClick={() => editor?.chain().focus().toggleBulletList().run()}
       >
         <List size={15} />
       </ToolButton>
       <ToolButton
         label={tr.editor.numberedList}
         active={editor?.isActive("orderedList")}
-        onClick={() => {
-          if (editor?.isActive("heading")) {
-            editor.chain().focus().setParagraph().toggleOrderedList().run();
-            if (selected) {
-              const blocks = useEditorStore.getState().blocks.map((block) =>
-                block.id === selected.id
-                  ? { ...block, type: "paragraph" as const, style: { ...selected.style, headingSize: undefined } }
-                  : block,
-              );
-              useEditorStore.setState({ blocks });
-            }
-            return;
-          }
-          editor?.chain().focus().toggleOrderedList().run();
-        }}
+        onClick={() => editor?.chain().focus().toggleOrderedList().run()}
       >
         <ListOrdered size={15} />
       </ToolButton>
-      <select
-        className="h-8 max-w-[118px] rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
-        disabled={selected?.type === "heading"}
-        title={selected?.type === "heading" ? "Başlıklarda madde işareti yok" : "Madde işareti (isteğe bağlı)"}
-        value={selected?.style.listMarker ?? ""}
-        onChange={(event) => {
-          if (!selected || selected.type === "heading") return;
-          const listMarker = event.target.value || undefined;
-          useEditorStore.getState().updateBlockLocal(selected.id, {
-            style: { ...selected.style, listMarker },
-          });
-          useEditorStore.getState().scheduleSave(selected.id);
-        }}
-      >
-        {LIST_MARKER_OPTIONS.map((item) => (
-          <option key={item.value || "default"} value={item.value}>
-            {item.label}
-          </option>
-        ))}
-      </select>
-      <SpecialCharsButton editor={editor} />
-      <ToolButton
-        label="Sola yasla"
-        active={editor?.isActive({ textAlign: "left" }) || selected?.style.align === "left"}
-        onClick={() => applyPageAlign("left")}
-      >
+      <ToolButton label="Sola" active={editor?.isActive({ textAlign: "left" })} onClick={() => applyPageAlign("left")}>
         <AlignLeft size={15} />
       </ToolButton>
-      <ToolButton
-        label="Ortala"
-        active={editor?.isActive({ textAlign: "center" }) || selected?.style.align === "center"}
-        onClick={() => applyPageAlign("center")}
-      >
+      <ToolButton label="Ortala" active={editor?.isActive({ textAlign: "center" })} onClick={() => applyPageAlign("center")}>
         <AlignCenter size={15} />
       </ToolButton>
-      <ToolButton
-        label="Sağa yasla"
-        active={editor?.isActive({ textAlign: "right" }) || selected?.style.align === "right"}
-        onClick={() => applyPageAlign("right")}
-      >
+      <ToolButton label="Sağa" active={editor?.isActive({ textAlign: "right" })} onClick={() => applyPageAlign("right")}>
         <AlignRight size={15} />
       </ToolButton>
       <ToolButton
-        label="İki yana yasla"
-        active={editor?.isActive({ textAlign: "justify" }) || selected?.style.align === "justify"}
+        label="İki yana"
+        active={editor?.isActive({ textAlign: "justify" })}
         onClick={() => applyPageAlign("justify")}
       >
         <AlignJustify size={15} />
@@ -191,114 +155,164 @@ export function FormattingToolbar() {
       <ToolButton label={tr.editor.link} onClick={() => applyLink(editor)}>
         <Link2 size={15} />
       </ToolButton>
-      <input
-        type="color"
-        title="Yazı rengi"
-        className="h-7 w-7 cursor-pointer rounded border border-[#1c314c] bg-[#102038] p-0"
-        value={
-          typeof editor?.getAttributes("textStyle").color === "string" &&
-          String(editor.getAttributes("textStyle").color).startsWith("#")
-            ? String(editor.getAttributes("textStyle").color)
-            : "#152033"
-        }
-        onChange={(event) => editor?.chain().focus().setColor(event.target.value).run()}
-      />
-      <select
-        className="h-8 max-w-[88px] rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
-        title="Yazı boyutu"
-        value={String(editor?.getAttributes("textStyle").fontSize ?? "")}
-        onChange={(event) => {
-          const value = event.target.value;
-          if (!value) editor?.chain().focus().unsetFontSize().run();
-          else editor?.chain().focus().setFontSize(value).run();
-        }}
-      >
-        <option value="">Boyut</option>
-        <option value="12px">12</option>
-        <option value="14px">14</option>
-        <option value="16px">16</option>
-        <option value="18px">18</option>
-        <option value="22px">22</option>
-        <option value="28px">28</option>
-      </select>
-      <select
-        className="h-8 max-w-[92px] rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
-        title="Satır aralığı"
-        value={String(selected?.style.lineHeight ?? book?.lineHeight ?? 1.15)}
-        onChange={(event) => {
-          const lineHeight = Number(event.target.value);
-          if (selected) {
-            useEditorStore.getState().updateBlockLocal(selected.id, {
-              style: { ...selected.style, lineHeight },
-            });
-            useEditorStore.getState().scheduleSave(selected.id);
-          }
-          if (book) {
-            void updateBook({ ...book, lineHeight }, { silent: true });
-          }
-        }}
-      >
-        {LINE_SPACINGS.map((item) => (
-          <option key={item.value} value={item.value}>
-            Aralık {item.label}
-          </option>
-        ))}
-      </select>
-      <ToolButton label="Görsel" onClick={() => void useEditorStore.getState().addBlock("image")}>
-        <ImageIcon size={15} />
-      </ToolButton>
-      <span className="mx-1 h-4 w-px bg-[#1c314c]" />
       <ToolButton label={tr.editor.undo} onClick={() => editor?.chain().focus().undo().run()}>
         <Undo2 size={15} />
       </ToolButton>
       <ToolButton label={tr.editor.redo} onClick={() => editor?.chain().focus().redo().run()}>
         <Redo2 size={15} />
       </ToolButton>
-      <div className="ml-auto flex items-center gap-2">
-        <label className="flex items-center gap-1 text-[10px] text-[#8aa0b8]" title="Sayfa rengi">
-          Sayfa
-          <input
-            type="color"
-            className="h-7 w-7 cursor-pointer rounded border border-[#1c314c] bg-[#102038] p-0"
-            value={book?.pageColor || "#ffffff"}
-            onChange={(event) => {
-              if (!book) return;
-              void updateBook({ ...book, pageColor: event.target.value }, { silent: true });
-            }}
-          />
-        </label>
-        <label className="flex items-center gap-1 text-[10px] text-[#8aa0b8]" title="Yazı rengi">
-          Metin
-          <input
-            type="color"
-            className="h-7 w-7 cursor-pointer rounded border border-[#1c314c] bg-[#102038] p-0"
-            value={book?.inkColor || "#152033"}
-            onChange={(event) => {
-              if (!book) return;
-              void updateBook({ ...book, inkColor: event.target.value }, { silent: true });
-            }}
-          />
-        </label>
-        <PageNumberControls compact />
-        <select
-          className="h-8 max-w-[110px] rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
-          title="Sayfa yazı tipi"
-          value={book?.fontFamily || "Segoe UI"}
-          onChange={(event) => {
-            if (!book) return;
-            void updateBook({ ...book, fontFamily: event.target.value }, { silent: true });
-          }}
-        >
-          {PAGE_FONTS.map((font) => (
-            <option key={font.value} value={font.value}>
-              {font.label}
-            </option>
-          ))}
-        </select>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="secondary" title="Diğer">
+            <MoreHorizontal size={14} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuLabel>Diğer biçimler</DropdownMenuLabel>
+          <div className="space-y-2 p-2" onClick={(event) => event.stopPropagation()}>
+            <label className="flex items-center justify-between gap-2 text-xs text-[#8aa0b8]">
+              Yazı rengi
+              <input
+                type="color"
+                className="h-7 w-7 cursor-pointer rounded border border-[#1c314c] bg-[#102038] p-0"
+                value={
+                  typeof editor?.getAttributes("textStyle").color === "string" &&
+                  String(editor.getAttributes("textStyle").color).startsWith("#")
+                    ? String(editor.getAttributes("textStyle").color)
+                    : "#152033"
+                }
+                onChange={(event) => editor?.chain().focus().setColor(event.target.value).run()}
+              />
+            </label>
+            <label className="block text-xs text-[#8aa0b8]">
+              Yazı boyutu
+              <select
+                className="mt-1 h-8 w-full rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
+                value={String(editor?.getAttributes("textStyle").fontSize ?? "")}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!value) editor?.chain().focus().unsetFontSize().run();
+                  else editor?.chain().focus().setFontSize(value).run();
+                }}
+              >
+                <option value="">Varsayılan</option>
+                <option value="12px">12</option>
+                <option value="14px">14</option>
+                <option value="16px">16</option>
+                <option value="18px">18</option>
+                <option value="22px">22</option>
+                <option value="28px">28</option>
+              </select>
+            </label>
+            <label className="block text-xs text-[#8aa0b8]">
+              Satır aralığı
+              <select
+                className="mt-1 h-8 w-full rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
+                value={String(selected?.style.lineHeight ?? book?.lineHeight ?? 1.15)}
+                onChange={(event) => {
+                  const lineHeight = Number(event.target.value);
+                  if (selected) {
+                    useEditorStore.getState().updateBlockLocal(selected.id, {
+                      style: { ...selected.style, lineHeight },
+                    });
+                    useEditorStore.getState().scheduleSave(selected.id);
+                  }
+                  if (book) void updateBook({ ...book, lineHeight }, { silent: true });
+                }}
+              >
+                {LINE_SPACINGS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs text-[#8aa0b8]">
+              Madde işareti
+              <select
+                className="mt-1 h-8 w-full rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
+                disabled={selected?.type === "heading"}
+                value={selected?.style.listMarker ?? ""}
+                onChange={(event) => {
+                  if (!selected || selected.type === "heading") return;
+                  const listMarker = event.target.value || undefined;
+                  useEditorStore.getState().updateBlockLocal(selected.id, {
+                    style: { ...selected.style, listMarker },
+                  });
+                  useEditorStore.getState().scheduleSave(selected.id);
+                }}
+              >
+                {LIST_MARKER_OPTIONS.map((item) => (
+                  <option key={item.value || "default"} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <SpecialCharsButton editor={editor} />
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Sayfa</DropdownMenuLabel>
+          <div className="space-y-2 p-2" onClick={(event) => event.stopPropagation()}>
+            <label className="flex items-center justify-between gap-2 text-xs text-[#8aa0b8]">
+              Sayfa rengi
+              <input
+                type="color"
+                className="h-7 w-7 cursor-pointer rounded border border-[#1c314c] bg-[#102038] p-0"
+                value={book?.pageColor || "#ffffff"}
+                onChange={(event) => {
+                  if (!book) return;
+                  void updateBook({ ...book, pageColor: event.target.value }, { silent: true });
+                }}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2 text-xs text-[#8aa0b8]">
+              Metin rengi
+              <input
+                type="color"
+                className="h-7 w-7 cursor-pointer rounded border border-[#1c314c] bg-[#102038] p-0"
+                value={book?.inkColor || "#152033"}
+                onChange={(event) => {
+                  if (!book) return;
+                  void updateBook({ ...book, inkColor: event.target.value }, { silent: true });
+                }}
+              />
+            </label>
+            <label className="block text-xs text-[#8aa0b8]">
+              Yazı tipi
+              <select
+                className="mt-1 h-8 w-full rounded-md border border-[#1c314c] bg-[#102038] px-1 text-[11px] text-white"
+                value={book?.fontFamily || "Segoe UI"}
+                onChange={(event) => {
+                  if (!book) return;
+                  void updateBook({ ...book, fontFamily: event.target.value }, { silent: true });
+                }}
+              >
+                {PAGE_FONTS.map((font) => (
+                  <option key={font.value} value={font.value}>
+                    {font.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PageNumberControls compact />
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => useUiStore.getState().openBookSettings()}
+          >
+            Kitap ayarları…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <div className="ml-auto">
         <select
           className="h-8 rounded-md border border-[#1c314c] bg-[#102038] px-2 text-xs text-white"
           value={zoom}
           onChange={(event) => setZoom(Number(event.target.value))}
+          title="Yakınlaştırma"
         >
           <option value={75}>%75</option>
           <option value={100}>%100</option>

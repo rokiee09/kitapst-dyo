@@ -8,10 +8,18 @@ export const blockStyleSchema = z.object({
   fontFamily: z.string().optional(),
   fontSize: z.number().optional(),
   lineHeight: z.number().optional(),
-  placement: z.enum(["flow", "free"]).optional(),
+  placement: z
+    .enum(["flow", "free", "inline", "wrapLeft", "wrapRight", "freeFront", "freeBehind"])
+    .optional(),
   x: z.number().optional(),
   y: z.number().optional(),
   width: z.number().optional(),
+  xMm: z.number().optional(),
+  yMm: z.number().optional(),
+  widthMm: z.number().optional(),
+  heightMm: z.number().optional(),
+  anchorBlockId: z.string().nullable().optional(),
+  textStyle: z.string().optional(),
 });
 
 export const blockTypeSchema = z.enum([
@@ -46,6 +54,14 @@ export const updateBookSchema = z.object({
   pageNumberAlign: z.enum(["left", "center", "right"]).optional(),
   pageNumberStart: z.number().int().min(0).max(9999).optional(),
   lineHeight: z.number().min(1).max(3).optional(),
+  pageSizePreset: z.enum(["classic", "a4", "a5", "book1724", "custom"]).optional(),
+  pageWidthMm: z.number().min(80).max(400).optional(),
+  pageHeightMm: z.number().min(80).max(500).optional(),
+  marginTopMm: z.number().min(0).max(80).optional(),
+  marginRightMm: z.number().min(0).max(80).optional(),
+  marginBottomMm: z.number().min(0).max(80).optional(),
+  marginLeftMm: z.number().min(0).max(80).optional(),
+  bookExtrasJson: z.string().optional(),
 });
 
 export const imageBlockSchema = z.object({

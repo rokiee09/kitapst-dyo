@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 import type { BlockStyle, BlockType } from "@/types/domain";
+import { mapWordStyleToTextStyle, type TextStyleId } from "@/book/textStyles";
 
 export interface DraftBlock {
   type: BlockType;
@@ -59,14 +60,21 @@ function pushNode(node: ChildNode, out: DraftBlock[]) {
     out.push(headingBlock(level, inlineFrom(node), layout));
     return;
   }
+  if (tag === "figcaption") {
+    const layoutWithStyle = { ...layout, ...readTextStyleHint(node) };
+    const content = inlineFrom(node);
+    out.push(paragraphBlock(content.length ? content : [textNode("\u00a0")], layoutWithStyle));
+    return;
+  }
   if (tag === "p") {
-    const images = Array.from(node.querySelectorAll(":scope > img")).filter(
+    const images = Array.from(node.querySelectorAll("img")).filter(
       (item): item is HTMLImageElement => item instanceof HTMLImageElement,
     );
     for (const img of images) pushImage(img, out, align);
+    const layoutWithStyle = { ...layout, ...readTextStyleHint(node) };
     const content = inlineFrom(node);
-    if (content.length) out.push(paragraphBlock(content, layout));
-    else if (!images.length) out.push(paragraphBlock([textNode("\u00a0")], layout));
+    if (content.length) out.push(paragraphBlock(content, layoutWithStyle));
+    else if (!images.length) out.push(paragraphBlock([textNode("\u00a0")], layoutWithStyle));
     return;
   }
   if (tag === "blockquote") {
@@ -115,11 +123,26 @@ function pushNode(node: ChildNode, out: DraftBlock[]) {
 function pushImage(img: HTMLImageElement, out: DraftBlock[], align: BlockStyle["align"]) {
   const src = img.getAttribute("src") || "";
   if (!src) return;
-  const widthAttr = img.getAttribute("width");
-  const width = widthAttr ? Math.min(100, Math.max(8, Math.round((Number(widthAttr) / 600) * 100) || 100)) : 100;
+  const widthPx = Number(img.getAttribute("width")) || 0;
+  const heightPx = Number(img.getAttribute("height")) || 0;
+  const width = widthPx
+    ? Math.min(100, Math.max(8, Math.round((widthPx / 600) * 100) || 100))
+    : 100;
+  const wrap = img.getAttribute("data-ks-wrap") || "inline";
+  const inline = img.getAttribute("data-ks-inline") !== "0" && wrap === "inline";
+  let style: BlockStyle = { align };
+  if (!inline && (wrap === "square" || wrap === "tight" || wrap === "through")) {
+    style = { ...style, placement: "wrapRight" };
+  } else if (wrap === "behind") {
+    style = { ...style, placement: "freeBehind", width };
+  } else if (wrap === "inFront" || wrap === "topAndBottom") {
+    style = { ...style, placement: "freeFront", width };
+  } else {
+    style = { ...style, placement: "inline" };
+  }
   out.push({
     type: "image",
-    style: { align },
+    style,
     data: {
       assetId: null,
       relativePath: null,
@@ -130,6 +153,8 @@ function pushImage(img: HTMLImageElement, out: DraftBlock[], align: BlockStyle["
       captionVisible: true,
       description: "",
       width,
+      widthPx: widthPx || undefined,
+      heightPx: heightPx || undefined,
       align: align === "justify" ? "center" : align ?? "center",
       borderRadius: 0,
       showInEpub: true,
@@ -199,11 +224,28 @@ function listItemContent(item: Element, align: BlockStyle["align"]): JSONContent
 
 function tableBlock(table: HTMLElement): DraftBlock {
   const rows = Array.from(table.querySelectorAll("tr")).map((row) =>
-    Array.from(row.querySelectorAll("th,td")).map((cell) => cell.textContent?.trim() ?? ""),
+    Array.from(row.querySelectorAll(":scope > th, :scope > td")).map((cell) => {
+      const colspan = Number(cell.getAttribute("colspan") || "1") || 1;
+      const rowspan = Number(cell.getAttribute("rowspan") || "1") || 1;
+      const text = cell.textContent?.trim() ?? "";
+      if (colspan > 1 || rowspan > 1) return { text, colspan, rowspan };
+      return text;
+    }),
   );
+  const colgroup = Array.from(table.querySelectorAll("colgroup col, col")).map((col) => {
+    const width = col.getAttribute("width") || (col as HTMLElement).style.width;
+    if (!width) return 0;
+    if (width.endsWith("%")) return Number(width.replace("%", "")) || 0;
+    return 0;
+  });
+  const columnWidthsPct = colgroup.some((w) => w > 0) ? colgroup : undefined;
   return {
     type: "table",
-    data: { rows: rows.length ? rows : [["", ""], ["", ""]] },
+    data: {
+      rows: rows.length ? rows : [["", ""], ["", ""]],
+      columnWidthsPct,
+      borders: true,
+    },
   };
 }
 
@@ -384,8 +426,18 @@ function cssValue(style: string, prop: string): string | undefined {
   return match?.[1]?.trim();
 }
 
+function readTextStyleHint(el: HTMLElement): Pick<BlockStyle, "textStyle"> {
+  for (const token of `${el.className} ${el.getAttribute("style") ?? ""}`.split(/\s+/)) {
+    const hint = mapWordStyleToTextStyle(token, token);
+    if (hint && hint !== "body") return { textStyle: hint };
+  }
+  if (el.tagName.toLowerCase() === "figcaption") return { textStyle: "caption" };
+  return {};
+}
+
 function pickStyle(layout: Partial<BlockStyle>): BlockStyle {
   const style: BlockStyle = {};
+  if (layout.textStyle) style.textStyle = layout.textStyle as TextStyleId;
   if (layout.align) style.align = layout.align;
   if (layout.fontFamily) style.fontFamily = layout.fontFamily;
   if (layout.fontSize != null) style.fontSize = layout.fontSize;
@@ -414,8 +466,13 @@ function textNode(text: string): JSONContent {
 function isEmptyDraft(item: DraftBlock): boolean {
   if (item.type === "divider" || item.type === "image" || item.type === "pageBreak") return false;
   if (item.type === "table") {
-    const rows = (item.data as { rows?: string[][] }).rows ?? [];
-    return rows.every((row) => row.every((cell) => !cell.trim()));
+    const rows = (item.data as { rows?: unknown[][] }).rows ?? [];
+    return rows.every((row) =>
+      row.every((cell) => {
+        const text = typeof cell === "string" ? cell : String((cell as { text?: string })?.text ?? "");
+        return !text.trim();
+      }),
+    );
   }
   return !JSON.stringify(item.data).match(/"text":"[^"]+/);
 }

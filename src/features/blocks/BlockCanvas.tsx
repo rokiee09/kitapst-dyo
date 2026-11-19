@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -11,7 +11,7 @@ import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { BlockView } from "@/features/blocks/BlockView";
 import { BlockWrapper } from "@/features/blocks/BlockWrapper";
 import { DeviceFrame } from "@/features/preview/DeviceFrame";
-import { BookSheet, BOOK_PAGE_HEIGHT } from "@/features/blocks/BookSheet";
+import { BookSheet } from "@/features/blocks/BookSheet";
 import { PageFitNotice } from "@/features/blocks/PageFitNotice";
 import {
   fitBlocksToPages,
@@ -24,10 +24,13 @@ import {
 } from "@/features/blocks/pageFit";
 import { PageStructurePicker } from "@/features/templates/PageStructurePicker";
 import { isFree } from "@/features/blocks/blockStyle";
+import { handlePageDrop, handlePagePaste } from "@/features/blocks/pageMediaInput";
 import { useEditorStore } from "@/stores/editorStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { cn } from "@/lib/utils";
-import { chapterPageNumber, pageNumberAlignClass } from "@/utils/pageNumbers";
+import { chapterPageNumber, formatPageNumber, pageNumberAlignClass } from "@/utils/pageNumbers";
+import { mergeBookExtras, textStylesToCss } from "@/book/textStyles";
+import { pagePixels, resolvePageSpec } from "@/page/pageSpec";
 import type { PreviewMode } from "@/types/domain";
 
 interface BlockCanvasProps {
@@ -57,29 +60,68 @@ export function BlockCanvas({
   const [fit, setFit] = useState<FitResult | null>(null);
   const flowBlocks = blocks.filter((block) => !isFree(block.style));
   const freeBlocks = blocks.filter((block) => isFree(block.style));
+  const bookExtras = useMemo(
+    () => mergeBookExtras(JSON.parse(book?.bookExtrasJson || "{}")),
+    [book?.bookExtrasJson],
+  );
+  const textStyleCss = useMemo(() => textStylesToCss(bookExtras.textStyles), [bookExtras.textStyles]);
+  const bodyStyle = bookExtras.textStyles.body;
   const pageColor = book?.pageColor || "#ffffff";
-  const inkColor = book?.inkColor || "#152033";
-  const fontFamily = book?.fontFamily || "Segoe UI";
+  const inkColor = dark ? "#e5e7eb" : bodyStyle.color || book?.inkColor || "#152033";
+  const fontFamily = bodyStyle.fontFamily || book?.fontFamily || "Segoe UI";
   const paperStyle = dark
     ? {
         background: "#111827",
-        color: "#e5e7eb",
+        color: inkColor,
         fontFamily,
-        ["--ks-line-height" as string]: String(book?.lineHeight ?? 1.15),
+        ["--ks-line-height" as string]: String(bodyStyle.lineHeight ?? book?.lineHeight ?? 1.15),
       }
     : {
         background: pageColor,
         color: inkColor,
         fontFamily,
-        ["--ks-line-height" as string]: String(book?.lineHeight ?? 1.15),
+        ["--ks-line-height" as string]: String(bodyStyle.lineHeight ?? book?.lineHeight ?? 1.15),
       };
+
+  useEffect(() => {
+    if (!editable) return;
+    function onPaste(event: ClipboardEvent) {
+      void handlePagePaste(event);
+    }
+    function onDragOver(event: DragEvent) {
+      if (!event.dataTransfer) return;
+      const types = Array.from(event.dataTransfer.types);
+      if (
+        types.includes("Files") ||
+        types.includes("application/x-kitap-media-id") ||
+        types.includes("application/x-kitap-media-path")
+      ) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }
+    }
+    function onDrop(event: DragEvent) {
+      void handlePageDrop(event);
+    }
+    window.addEventListener("paste", onPaste);
+    document.addEventListener("dragover", onDragOver);
+    document.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("paste", onPaste);
+      document.removeEventListener("dragover", onDragOver);
+      document.removeEventListener("drop", onDrop);
+    };
+  }, [editable]);
 
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     const measure = () => {
       const article = root.querySelector("article");
-      const pageHeight = article ? sheetContentHeight(article) : BOOK_PAGE_HEIGHT - 40 - 72;
+      const fallback = pagePixels(resolvePageSpec(book));
+      const pageHeight = article
+        ? sheetContentHeight(article)
+        : fallback.contentHeight;
       const heights = measureFlowHeights(root);
       const items = blocks
         .filter((block) => !isFree(block.style))
@@ -100,7 +142,7 @@ export function BlockCanvas({
     const observer = new ResizeObserver(measure);
     observer.observe(root);
     return () => observer.disconnect();
-  }, [blocks]);
+  }, [blocks, book]);
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -155,7 +197,7 @@ export function BlockCanvas({
                   pageNumberAlignClass(book.pageNumberAlign),
                 )}
               >
-                {pageNumberBase + index}
+                {formatPageNumber(pageNumberBase.n + index, pageNumberBase.roman)}
               </div>
             ) : null;
             const body = (
@@ -206,9 +248,9 @@ export function BlockCanvas({
             return (
               <BookSheet
                 key={`${index}-${ids[0] ?? "empty"}`}
+                book={book}
                 dark={dark}
                 clip={false}
-                fluid={!previewing}
                 quietOverflow
                 showGuide
                 style={paperStyle}
@@ -225,6 +267,7 @@ export function BlockCanvas({
 
   return (
     <DeviceFrame mode={previewMode} active={previewing}>
+      <style>{textStyleCss}</style>
       {previewing && previewMode === "book" ? <div className="flex justify-center">{sheets}</div> : sheets}
     </DeviceFrame>
   );

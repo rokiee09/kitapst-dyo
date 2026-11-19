@@ -38,7 +38,22 @@ export function flattenChapterTree(nodes: ChapterNode[]): ChapterNode[] {
 }
 
 export function displayChapterLabel(chapter: Pick<Chapter, "number" | "title">): string {
-  return chapter.number ? `${chapter.number}  ${chapter.title}` : chapter.title;
+  const title = chapter.title.trim();
+  if (!chapter.number) return chapter.title;
+  if (isAutoPageTitle(title)) return `Sayfa ${chapter.number}`;
+  if (title === chapter.number || title.startsWith(`${chapter.number} `)) return title;
+  return `${chapter.number}  ${chapter.title}`;
+}
+
+export function isAutoPageTitle(title: string): boolean {
+  const trimmed = title.trim();
+  if (!trimmed.startsWith("Sayfa ")) return false;
+  const rest = trimmed.slice("Sayfa ".length);
+  return rest.length > 0 && /^[\d.]+$/.test(rest);
+}
+
+export function isFrontMatterTitle(title: string): boolean {
+  return title === "Kapak" || title === "Önsöz" || title === "Giriş" || title === "İçindekiler";
 }
 
 export function pageSheetFamily(chapters: Chapter[], currentId: string | null) {

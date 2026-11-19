@@ -7,8 +7,12 @@ import { assetService } from "@/services/assets";
 import { pickLocalFile } from "@/utils/filePicker";
 import { insertQrBlock } from "@/features/blocks/insertQr";
 import { MediaCaption } from "@/features/blocks/MediaCaption";
+import { MediaChrome } from "@/features/blocks/MediaChrome";
 import { readVideoData } from "@/features/blocks/blockData";
+import { isFree, isWrap } from "@/features/blocks/blockStyle";
+import { percentToMm } from "@/features/blocks/mediaLayout";
 import { useEditorStore } from "@/stores/editorStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { isSafeExternalUrl } from "@/utils/security";
 import { vimeoEmbedUrl, vimeoVideoId, youtubeEmbedUrl, youtubeVideoId } from "@/utils/videoUrls";
 import { cn } from "@/lib/utils";
@@ -17,10 +21,14 @@ import type { ContentBlock } from "@/types/domain";
 export function VideoBlock({ block, editable }: { block: ContentBlock; editable: boolean }) {
   const data = readVideoData(block.data);
   const selected = useEditorStore((state) => state.selectedBlockId === block.id);
+  const book = useWorkspaceStore((state) => state.book);
   const [localSrc, setLocalSrc] = useState<string | null>(null);
   const [thumbSrc, setThumbSrc] = useState<string | null>(null);
   const [resizing, setResizing] = useState(false);
   const frameRef = useRef<HTMLDivElement>(null);
+  const free = isFree(block.style);
+  const wrap = isWrap(block.style);
+  const widthPercent = free ? (block.style.width ?? data.width) : data.width;
   const hasLocal = Boolean(data.relativePath);
   const hasUrl = Boolean(data.url.trim());
   const urlOk = hasUrl && isSafeExternalUrl(data.url);
@@ -71,6 +79,21 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
     useEditorStore.getState().scheduleSave(block.id);
   }
 
+  function setWidth(next: number) {
+    const clamped = Math.min(100, Math.max(8, Math.round(next)));
+    if (free) {
+      const styleNow = block.style;
+      const mm = percentToMm(styleNow.x ?? 58, styleNow.y ?? 8, clamped, book);
+      useEditorStore.getState().updateBlockLocal(block.id, {
+        data: { ...data, width: clamped },
+        style: { ...styleNow, width: clamped, widthMm: mm.widthMm },
+      });
+    } else {
+      useEditorStore.getState().updateBlockLocal(block.id, { data: { ...data, width: clamped } });
+    }
+    useEditorStore.getState().scheduleSave(block.id);
+  }
+
   function startResize(event: ReactPointerEvent<HTMLButtonElement>, edge: "e" | "se" | "w") {
     if (!editable) return;
     event.preventDefault();
@@ -79,15 +102,25 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
     const page = frameRef.current?.closest(".book-page");
     const pageWidth = page?.clientWidth ?? 720;
     const startX = event.clientX;
-    const startWidth = data.width;
-    const grow = data.align === "center" ? 2 : 1;
+    const startWidth = widthPercent;
+    const grow = data.align === "center" && !free && !wrap ? 2 : 1;
     setResizing(true);
 
     function onMove(moveEvent: PointerEvent) {
       const dx = moveEvent.clientX - startX;
       const signed = edge === "w" ? -dx : dx;
       const next = Math.min(100, Math.max(8, Math.round(startWidth + (signed / pageWidth) * 100 * grow)));
-      useEditorStore.getState().updateBlockLocal(block.id, { data: { ...data, width: next } });
+      if (free) {
+        const styleNow =
+          useEditorStore.getState().blocks.find((item) => item.id === block.id)?.style ?? block.style;
+        const mm = percentToMm(styleNow.x ?? 58, styleNow.y ?? 8, next, book);
+        useEditorStore.getState().updateBlockLocal(block.id, {
+          data: { ...data, width: next },
+          style: { ...styleNow, width: next, widthMm: mm.widthMm },
+        });
+      } else {
+        useEditorStore.getState().updateBlockLocal(block.id, { data: { ...data, width: next } });
+      }
     }
 
     function onUp() {
@@ -132,7 +165,13 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
   const youtubeId = urlOk ? youtubeVideoId(data.url) : null;
   const vimeoId = urlOk ? vimeoVideoId(data.url) : null;
   const alignClass =
-    data.align === "left" ? "mr-auto" : data.align === "right" ? "ml-auto" : "mx-auto";
+    free || wrap
+      ? "w-full"
+      : data.align === "left"
+        ? "mr-auto"
+        : data.align === "right"
+          ? "ml-auto"
+          : "mx-auto";
   const floatClass =
     data.tile && data.align === "left"
       ? "float-left mr-3 mb-2"
@@ -142,7 +181,25 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
   const hasMedia = Boolean(localSrc || youtubeId || vimeoId || urlOk);
 
   return (
-    <div className={data.tile ? "min-h-[8rem]" : "space-y-3"}>
+    <div className={cn("relative", data.tile ? "min-h-[8rem]" : "space-y-3")}>
+      {editable && selected ? (
+        <MediaChrome
+          block={block}
+          widthPercent={widthPercent}
+          onWidth={setWidth}
+          captionVisible={data.captionVisible}
+          onCaptionToggle={() => patch({ captionVisible: !data.captionVisible })}
+          extra={
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-[10px] text-[#9fb3c9] hover:bg-[#163056] hover:text-white"
+              onClick={() => void chooseThumb()}
+            >
+              Kapak
+            </button>
+          }
+        />
+      ) : null}
       <div
         ref={frameRef}
         className={cn(
@@ -151,15 +208,20 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
           floatClass,
           !data.tile && "border border-[#dbe4ef]",
         )}
-        style={{ width: `${data.width}%`, maxWidth: `${data.width}%` }}
+        style={{
+          width: free || wrap ? "100%" : `${data.width}%`,
+          maxWidth: free || wrap ? "100%" : `${data.width}%`,
+        }}
       >
         <div className="relative w-full min-w-0 overflow-hidden pt-[56.25%]">
           <div className={cn("absolute inset-0 min-h-0 min-w-0 overflow-hidden", resizing && "pointer-events-none")}>
-            {data.previewAsPdf ? (
+            {data.previewAsPdf || (!localSrc && !youtubeId && !vimeoId && thumbSrc) ? (
               thumbSrc ? (
                 <img src={thumbSrc} alt="" className="h-full w-full object-cover" />
               ) : (
-                <div className="flex h-full items-center justify-center text-xs text-slate-300">Küçük resim yok</div>
+                <div className="flex h-full items-center justify-center text-xs text-slate-300">
+                  Kapak karesi yok
+                </div>
               )
             ) : (
               <VideoPlayer
@@ -169,6 +231,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
                 url={data.url}
                 urlOk={urlOk}
                 fit={data.fit}
+                poster={thumbSrc}
               />
             )}
           </div>
@@ -201,8 +264,8 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
               onPointerDown={(event) => startResize(event, "se")}
             />
             <div className="pointer-events-none absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
-              %{data.width}
-              {resizing ? " · bırakınca kaydedilir" : ""}
+              %{widthPercent}
+              {resizing ? " · oran kilitli" : ""}
             </div>
           </>
         ) : null}
@@ -217,12 +280,11 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
         editable={editable}
         onChange={(next) => patch(next)}
       />
-      {editable ? (
-        <div className="space-y-2">
+      {editable && selected ? (
+        <div className="mt-2 space-y-2">
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="rounded-lg border border-[#dbe4ef] bg-white p-2">
               <div className="mb-1 text-[11px] font-medium text-[#152033]">Yerel video</div>
-              <p className="mb-2 text-[10px] text-[#5b6578]">Editörde oynar; kitap klasörüne kopyalanır.</p>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="paper" onClick={() => void chooseVideo()}>
                   {hasLocal ? "Dosyayı değiştir" : "Dosya seç"}
@@ -231,7 +293,13 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
                   <Button
                     size="sm"
                     variant="paper"
-                    onClick={() => patch({ assetId: null, relativePath: null, sourceType: hasUrl ? "external" : "local" })}
+                    onClick={() =>
+                      patch({
+                        assetId: null,
+                        relativePath: null,
+                        sourceType: hasUrl ? "external" : "local",
+                      })
+                    }
                   >
                     Kaldır
                   </Button>
@@ -239,8 +307,7 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
               </div>
             </div>
             <div className="rounded-lg border border-[#dbe4ef] bg-white p-2">
-              <div className="mb-1 text-[11px] font-medium text-[#152033]">İnternet bağlantısı</div>
-              <p className="mb-2 text-[10px] text-[#5b6578]">YouTube, Vimeo veya https adresi.</p>
+              <div className="mb-1 text-[11px] font-medium text-[#152033]">Bağlantı / QR</div>
               <input
                 className="h-8 w-full rounded-md border border-[#dbe4ef] bg-white px-2 text-sm outline-none focus:border-blue-400"
                 placeholder="https://..."
@@ -258,6 +325,9 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="paper" onClick={() => void chooseThumb()}>
+              {thumbSrc ? "Kapak karesini değiştir" : "Kapak karesi seç"}
+            </Button>
             <Button
               size="sm"
               variant="paper"
@@ -275,66 +345,27 @@ export function VideoBlock({ block, editable }: { block: ContentBlock; editable:
                 });
               }}
             >
-              QR olarak ekle
+              QR bloğu ekle
             </Button>
-            <Button size="sm" variant="paper" onClick={() => void chooseThumb()}>
-              Küçük resim seç
-            </Button>
-            <label className="flex min-w-44 flex-1 items-center gap-2 text-[11px] text-[#5b6578]">
-              Boyut
-              <input
-                type="range"
-                min={8}
-                max={100}
-                value={data.width}
-                onChange={(event) => patch({ width: Number(event.target.value) })}
-                className="w-full accent-blue-600"
-              />
-              <span className="w-8 tabular-nums">%{data.width}</span>
-            </label>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <label className="text-[11px] text-[#5b6578]">
-              Hizalama
-              <select
-                className="mt-1 h-8 w-full rounded-md border border-[#dbe4ef] bg-white px-2 text-sm text-[#152033]"
-                value={data.align}
-                onChange={(event) => patch({ align: event.target.value })}
-              >
-                <option value="left">Sola</option>
-                <option value="center">Orta</option>
-                <option value="right">Sağa</option>
-              </select>
-            </label>
-            <label className="text-[11px] text-[#5b6578]">
-              Sığdırma
-              <select
-                className="mt-1 h-8 w-full rounded-md border border-[#dbe4ef] bg-white px-2 text-sm text-[#152033]"
-                value={data.fit}
-                onChange={(event) => patch({ fit: event.target.value })}
-              >
-                <option value="contain">Sığdır</option>
-                <option value="cover">Kutuyu doldur</option>
-              </select>
-            </label>
-            <label className="flex items-end gap-2 pb-1 text-sm text-[#152033]">
+            <label className="flex items-center gap-2 text-[11px] text-[#5b6578]">
               <input
                 type="checkbox"
                 className="accent-blue-600"
-                checked={data.tile}
-                onChange={(event) =>
-                  patch({
-                    tile: event.target.checked,
-                    align: event.target.checked ? data.align || "left" : data.align,
-                  })
-                }
+                checked={data.generateQr}
+                onChange={(event) => patch({ generateQr: event.target.checked })}
               />
-              Metnin yanına döşe
+              PDF’te QR göster
+            </label>
+            <label className="flex items-center gap-2 text-[11px] text-[#5b6578]">
+              <input
+                type="checkbox"
+                className="accent-blue-600"
+                checked={data.previewAsPdf}
+                onChange={(event) => patch({ previewAsPdf: event.target.checked })}
+              />
+              Kapak önizlemesi
             </label>
           </div>
-          <p className="text-[10px] text-[#5b6578]">
-            Kenarlardan sürükleyerek veya kaydırıcıyla videoyu istediğiniz oranda küçültüp büyütebilirsiniz.
-          </p>
         </div>
       ) : null}
     </div>
@@ -348,6 +379,7 @@ function VideoPlayer({
   url,
   urlOk,
   fit,
+  poster,
 }: {
   localSrc: string | null;
   youtubeId: string | null;
@@ -355,6 +387,7 @@ function VideoPlayer({
   url: string;
   urlOk: boolean;
   fit: "contain" | "cover";
+  poster: string | null;
 }) {
   const fill = "h-full w-full min-h-0 min-w-0 max-w-full bg-black";
   if (localSrc) {
@@ -362,6 +395,7 @@ function VideoPlayer({
       <video
         src={localSrc}
         controls
+        poster={poster ?? undefined}
         className={cn(fill, fit === "cover" ? "object-cover" : "object-contain")}
       />
     );

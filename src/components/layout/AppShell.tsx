@@ -1,19 +1,20 @@
 import { useEffect } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { IconNav } from "@/components/layout/IconNav";
-import { BottomDock } from "@/components/layout/BottomDock";
-import { NotesView } from "@/features/notes/NotesView";
-import { TemplatesView } from "@/features/templates/TemplatesView";
-import { MediaView } from "@/features/media/MediaView";
+import { StatusBar } from "@/components/layout/StatusBar";
+import { SideDrawer } from "@/components/layout/SideDrawer";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import { TopBar } from "@/components/layout/TopBar";
 import { ChapterTree } from "@/features/chapters/ChapterTree";
 import { RightPanel } from "@/features/blocks/RightPanel";
 import { EditorWorkspace } from "@/features/editor/EditorWorkspace";
+import { SelectionBubble } from "@/features/editor/SelectionBubble";
 import { LibraryView } from "@/features/library/LibraryView";
 import { ExportView } from "@/features/export/ExportView";
 import { SettingsView } from "@/features/settings/SettingsView";
-import { StatsView } from "@/features/stats/StatsView";
+import { TemplatesView } from "@/features/templates/TemplatesView";
+import { MediaView } from "@/features/media/MediaView";
+import { BookSettingsDialog } from "@/features/books/BookSettingsDialog";
 import { useEditorStore } from "@/stores/editorStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -36,6 +37,8 @@ export function AppShell() {
       const meta = event.ctrlKey || event.metaKey;
       if (event.key === "Escape") {
         useUiStore.getState().exitPreview();
+        useUiStore.getState().closeDrawer();
+        useUiStore.getState().closeBookSettings();
       }
       if (meta && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -107,7 +110,10 @@ export function AppShell() {
           </button>
         ) : null}
       </div>
-      {showEditorChrome && !previewing ? <BottomDock /> : null}
+      {showEditorChrome && !previewing ? <StatusBar /> : null}
+      <SelectionBubble />
+      <SideDrawer />
+      <BookSettingsDialog />
     </div>
   );
 }
@@ -123,10 +129,6 @@ function ViewRouter({ view }: { view: string }) {
       return <MediaView />;
     case "templates":
       return <TemplatesView />;
-    case "notes":
-      return <NotesView />;
-    case "stats":
-      return <StatsView />;
     case "export":
       return <ExportView />;
     case "settings":

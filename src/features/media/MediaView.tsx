@@ -58,7 +58,7 @@ export function MediaView() {
         <div>
           <h1 className="text-xl font-semibold">Medya</h1>
           <p className="mt-1 text-sm text-[#8aa0bd]">
-            Dosyalar proje klasörüne kopyalanır; veritabanında göreli yol saklanır.
+            Dosyalar proje klasörüne kopyalanır. Görseli veya videoyu editör sayfasına sürükleyip bırakabilirsiniz.
           </p>
         </div>
         <div className="flex gap-2">
@@ -114,13 +114,26 @@ function MediaCard({ asset, onRemove }: { asset: Asset; onRemove: () => void }) 
     };
   }, [asset.relativePath, asset.type]);
 
+  const canDrag = asset.type === "image" || asset.type === "video";
+
   return (
-    <div className="overflow-hidden rounded-lg border border-[#1c2a44] bg-[#070b14]">
-      <div className="flex h-36 items-center justify-center bg-[#102038]">
+    <div
+      className="overflow-hidden rounded-lg border border-[#1c2a44] bg-[#070b14]"
+      draggable={canDrag}
+      onDragStart={(event) => {
+        if (!canDrag) return;
+        event.dataTransfer.setData("application/x-kitap-media-id", asset.id);
+        event.dataTransfer.setData("application/x-kitap-media-path", asset.relativePath);
+        event.dataTransfer.setData("application/x-kitap-media-type", asset.type);
+        event.dataTransfer.effectAllowed = "copy";
+      }}
+      title={canDrag ? "Editör sayfasına sürükleyin" : undefined}
+    >
+      <div className="flex h-36 cursor-grab items-center justify-center bg-[#102038] active:cursor-grabbing">
         {asset.type === "image" && thumb ? (
-          <img src={thumb} alt={asset.filename} className="h-full w-full object-cover" />
+          <img src={thumb} alt={asset.filename} className="h-full w-full object-cover" draggable={false} />
         ) : asset.type === "video" && thumb ? (
-          <video src={thumb} className="h-full w-full object-cover" muted />
+          <video src={thumb} className="h-full w-full object-cover" muted draggable={false} />
         ) : (
           <span className="px-3 text-center text-xs text-[#8aa0bd]">{asset.filename}</span>
         )}
@@ -132,6 +145,9 @@ function MediaCard({ asset, onRemove }: { asset: Asset; onRemove: () => void }) 
         <div className="mt-2 text-xs text-[#8aa0bd]">
           {asset.mimeType} · {Math.max(1, Math.round(asset.size / 1024))} KB
         </div>
+        {canDrag ? (
+          <p className="mt-2 text-[10px] text-[#6b7f9a]">Sayfaya sürükleyip bırakın</p>
+        ) : null}
         <div className="mt-3 flex gap-2">
           <Button size="sm" variant="secondary" onClick={() => void assetService.open(asset.relativePath)}>
             Aç

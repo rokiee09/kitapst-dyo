@@ -48,6 +48,8 @@ struct SyncLock {
     machine_id: String,
     updated_at: String,
     book_title: String,
+    #[serde(default)]
+    machine_name: String,
 }
 
 enum PullOutcome {
@@ -214,6 +216,10 @@ pub fn try_pull_on_load(app: &AppHandle, state: &AppState) {
         }
         Ok(PullOutcome::Unchanged(warning)) => {
             settings.warning = warning;
+            if let Ok(book) = state.db().and_then(|conn| database::get_book(&conn)) {
+                let remote = resolve_remote_dir(&settings, &book.title);
+                let _ = write_lock(&remote, &settings.machine_id, &book.title);
+            }
             let _ = save_settings(app, &settings);
         }
         Err(err) => {
@@ -257,9 +263,8 @@ fn push_current(
         remote.join("sync-meta.json"),
         serde_json::to_vec_pretty(&meta)?,
     )?;
-    write_lock(&remote, &next.machine_id, &book.title)?;
-
     let warning = conflict_warning(&remote, &next.machine_id, &book.title);
+    write_lock(&remote, &next.machine_id, &book.title)?;
     next.last_push_at = Some(meta.updated_at.clone());
     next.last_applied_remote_at = Some(meta.updated_at);
     next.warning = warning;
@@ -443,15 +448,20 @@ fn conflict_warning(remote: &Path, machine_id: &str, book_title: &str) -> Option
     if lock.machine_id == machine_id {
         return None;
     }
+    let who = if lock.machine_name.trim().is_empty() {
+        "başka bir bilgisayar".to_string()
+    } else {
+        format!("“{}”", lock.machine_name.trim())
+    };
     let Ok(updated) = chrono::DateTime::parse_from_rfc3339(&lock.updated_at) else {
         return Some(format!(
-            "“{book_title}” başka bir bilgisayarda açık olabilir. Aynı anda düzenlemek çakışma yaratabilir."
+            "Dikkat: “{book_title}” {who} üzerinde açık görünüyor. Drive senkronunda son yazan kazanır; aynı anda iki PC’de düzenlemeyin."
         ));
     };
     let age = chrono::Utc::now().signed_duration_since(updated.with_timezone(&chrono::Utc));
     if age.to_std().unwrap_or(Duration::from_secs(0)) < Duration::from_secs(LOCK_STALE_SECS) {
         Some(format!(
-            "“{book_title}” şu an başka bir makinede düzenleniyor olabilir. Son kayıt Drive’a yazılır; aynı anda çalışmayın."
+            "Dikkat: “{book_title}” şu an {who} bilgisayarında açık. Son kayıt Drive’a yazılır; bu PC’de devam ederseniz diğerindeki değişiklikler kaybolabilir."
         ))
     } else {
         None
@@ -463,12 +473,19 @@ fn write_lock(remote: &Path, machine_id: &str, book_title: &str) -> Result<(), A
         machine_id: machine_id.to_string(),
         updated_at: database::now(),
         book_title: book_title.to_string(),
+        machine_name: hostname(),
     };
     fs::write(
         remote.join(".kitap-edit.lock"),
         serde_json::to_vec_pretty(&lock)?,
     )?;
     Ok(())
+}
+
+fn hostname() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "bilgisayar".to_string())
 }
 
 fn load_settings(app: &AppHandle) -> Result<DriveSyncSettings, AppError> {

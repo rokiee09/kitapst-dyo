@@ -1,15 +1,18 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { pagePixels, resolvePageSpec, sheetInlineStyle, type PageBookFields } from "@/page/pageSpec";
 
+/** @deprecated Ortak motor kullanın: resolvePageSpec / pagePixels */
 export const BOOK_PAGE_WIDTH = 760;
+/** @deprecated Ortak motor kullanın: resolvePageSpec / pagePixels */
 export const BOOK_PAGE_HEIGHT = 920;
 
 export function BookSheet({
   children,
+  book,
   dark = false,
   clip = false,
   showGuide = true,
-  fluid = false,
   quietOverflow = false,
   className,
   style,
@@ -18,10 +21,10 @@ export function BookSheet({
   sheetRef,
 }: {
   children: ReactNode;
+  book?: PageBookFields | null;
   dark?: boolean;
   clip?: boolean;
   showGuide?: boolean;
-  fluid?: boolean;
   quietOverflow?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -31,6 +34,16 @@ export function BookSheet({
 }) {
   const pageRef = useRef<HTMLElement>(null);
   const [overflow, setOverflow] = useState(false);
+  const spec = useMemo(() => resolvePageSpec(book), [
+    book?.pageSizePreset,
+    book?.pageWidthMm,
+    book?.pageHeightMm,
+    book?.marginTopMm,
+    book?.marginRightMm,
+    book?.marginBottomMm,
+    book?.marginLeftMm,
+  ]);
+  const px = useMemo(() => pagePixels(spec), [spec]);
 
   useLayoutEffect(() => {
     const page = pageRef.current;
@@ -50,10 +63,10 @@ export function BookSheet({
       mutations.disconnect();
       page.removeEventListener("input", measure);
     };
-  }, [children]);
+  }, [children, px.width, px.height]);
 
   return (
-    <div className={cn("relative", fluid ? "w-full" : "mx-auto")} style={fluid ? undefined : { width: BOOK_PAGE_WIDTH }}>
+    <div className={cn("relative mx-auto")} style={{ width: px.width }}>
       {overflow && !quietOverflow ? (
         <div
           className={cn(
@@ -76,22 +89,22 @@ export function BookSheet({
           clip ? "overflow-hidden" : "overflow-visible",
           className,
         )}
-        style={{
-          width: fluid ? "100%" : BOOK_PAGE_WIDTH,
-          height: BOOK_PAGE_HEIGHT,
-          boxSizing: "border-box",
-          padding: fluid ? "40px 40px 72px" : "56px 64px 96px",
-          ...style,
-        }}
+        style={sheetInlineStyle(spec, style)}
+        data-page-width-mm={spec.widthMm}
+        data-page-height-mm={spec.heightMm}
       >
         {children}
         {showGuide ? (
           <div
             className={cn(
-              "pointer-events-none absolute inset-x-10 border-t-2 border-dashed",
+              "pointer-events-none absolute inset-x-0 border-t-2 border-dashed",
               overflow ? "border-amber-500" : dark ? "border-white/25" : "border-[#c5d0de]",
             )}
-            style={{ bottom: 56 }}
+            style={{
+              left: px.paddingLeft,
+              right: px.paddingRight,
+              bottom: px.paddingBottom,
+            }}
             title="Sayfa sonu"
           />
         ) : null}

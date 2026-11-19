@@ -58,7 +58,7 @@ pub fn get_project(conn: &Connection) -> Result<Project, AppError> {
 
 pub fn get_book(conn: &Connection) -> Result<Book, AppError> {
     conn.query_row(
-        "SELECT id, project_id, title, subtitle, author, description, language, isbn, publisher, cover_asset_id, page_color, ink_color, font_family, page_numbers, page_number_align, page_number_start, line_height, created_at, updated_at
+        "SELECT id, project_id, title, subtitle, author, description, language, isbn, publisher, cover_asset_id, page_color, ink_color, font_family, page_numbers, page_number_align, page_number_start, line_height, page_size_preset, page_width_mm, page_height_mm, margin_top_mm, margin_right_mm, margin_bottom_mm, margin_left_mm, book_extras_json, created_at, updated_at
          FROM book LIMIT 1",
         [],
         map_book,
@@ -85,8 +85,16 @@ pub fn map_book(row: &rusqlite::Row<'_>) -> rusqlite::Result<Book> {
         page_number_align: row.get(14).unwrap_or_else(|_| "center".to_string()),
         page_number_start: row.get(15).unwrap_or(1),
         line_height: row.get(16).unwrap_or(1.15),
-        created_at: row.get(17)?,
-        updated_at: row.get(18)?,
+        page_size_preset: row.get(17).unwrap_or_else(|_| "classic".to_string()),
+        page_width_mm: row.get(18).unwrap_or(760.0 * 25.4 / 96.0),
+        page_height_mm: row.get(19).unwrap_or(920.0 * 25.4 / 96.0),
+        margin_top_mm: row.get(20).unwrap_or(56.0 * 25.4 / 96.0),
+        margin_right_mm: row.get(21).unwrap_or(64.0 * 25.4 / 96.0),
+        margin_bottom_mm: row.get(22).unwrap_or(96.0 * 25.4 / 96.0),
+        margin_left_mm: row.get(23).unwrap_or(64.0 * 25.4 / 96.0),
+        book_extras_json: row.get(24).unwrap_or_else(|_| "{}".to_string()),
+        created_at: row.get(25)?,
+        updated_at: row.get(26)?,
     })
 }
 
@@ -320,9 +328,38 @@ fn renumber_sibling_group(
             "UPDATE chapter SET number = ?1, updated_at = ?2 WHERE id = ?3",
             params![number, ts, id],
         )?;
+        if let Some(next_title) = synced_page_title(title, number.as_deref()) {
+            conn.execute(
+                "UPDATE chapter SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                params![next_title, ts, id],
+            )?;
+        }
         renumber_sibling_group(conn, book_id, Some(id), number.as_deref())?;
     }
     Ok(())
+}
+
+/// Otomatik “Sayfa 4.1” başlıklarını yeni numarayla hizalar; özel başlıklara dokunmaz.
+pub fn synced_page_title(title: &str, number: Option<&str>) -> Option<String> {
+    let Some(number) = number.filter(|value| !value.is_empty()) else {
+        return None;
+    };
+    if is_auto_page_title(title) {
+        Some(format!("Sayfa {number}"))
+    } else {
+        None
+    }
+}
+
+pub fn is_auto_page_title(title: &str) -> bool {
+    let trimmed = title.trim();
+    let Some(rest) = trimmed.strip_prefix("Sayfa ") else {
+        return false;
+    };
+    !rest.is_empty()
+        && rest
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || ch == '.')
 }
 
 fn list_sibling_rows(

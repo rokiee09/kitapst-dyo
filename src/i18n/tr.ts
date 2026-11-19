@@ -13,8 +13,8 @@ export const tr = {
     settings: "Ayarlar",
   },
   save: {
-    saving: "Kaydediliyor...",
-    saved: "Tüm değişiklikler kaydedildi",
+    saving: "Kaydediliyor…",
+    saved: "Kaydedildi ✓",
     error: "Kaydetme hatası",
     idle: "Hazır",
   },

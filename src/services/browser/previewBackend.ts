@@ -70,6 +70,8 @@ async function dispatch(command: string, args: Record<string, unknown>): Promise
       return moveChapter(str(args.id), str(args.direction));
     case "reorder_chapters":
       return reorderChapters(payload(args));
+    case "set_chapter_number":
+      return setChapterNumber(str(args.id), str(args.number));
     case "set_active_chapter":
       return setActiveChapter(str(args.chapterId));
     case "list_blocks":
@@ -183,6 +185,7 @@ function current(): StoredBook {
 }
 
 function snapshot(book: StoredBook): WorkspaceSnapshot {
+  if (!book.book.bookExtrasJson) book.book.bookExtrasJson = "{}";
   const selectedChapterId =
     book.settings.lastOpenedChapterId && book.chapters.some((chapter) => chapter.id === book.settings.lastOpenedChapterId)
       ? book.settings.lastOpenedChapterId
@@ -220,6 +223,17 @@ function updateBook(raw: Record<string, unknown>): Book {
   if (align === "left" || align === "center" || align === "right") book.pageNumberAlign = align;
   if (typeof raw.pageNumberStart === "number") book.pageNumberStart = clamp(Math.round(raw.pageNumberStart), 0, 9999);
   if (typeof raw.lineHeight === "number") book.lineHeight = clamp(raw.lineHeight, 1, 3);
+  const preset = nonempty(raw.pageSizePreset);
+  if (preset === "classic" || preset === "a4" || preset === "a5" || preset === "book1724" || preset === "custom") {
+    book.pageSizePreset = preset;
+  }
+  if (typeof raw.pageWidthMm === "number") book.pageWidthMm = clamp(raw.pageWidthMm, 80, 400);
+  if (typeof raw.pageHeightMm === "number") book.pageHeightMm = clamp(raw.pageHeightMm, 80, 500);
+  if (typeof raw.marginTopMm === "number") book.marginTopMm = clamp(raw.marginTopMm, 0, 80);
+  if (typeof raw.marginRightMm === "number") book.marginRightMm = clamp(raw.marginRightMm, 0, 80);
+  if (typeof raw.marginBottomMm === "number") book.marginBottomMm = clamp(raw.marginBottomMm, 0, 80);
+  if (typeof raw.marginLeftMm === "number") book.marginLeftMm = clamp(raw.marginLeftMm, 0, 80);
+  if (typeof raw.bookExtrasJson === "string") book.bookExtrasJson = raw.bookExtrasJson;
   book.updatedAt = now();
   current().project.name = title;
   current().project.updatedAt = book.updatedAt;
@@ -822,9 +836,55 @@ function renumberSiblingGroup(book: StoredBook, parentId: string | null, parentN
     } else {
       numbered += 1;
       chapter.number = parentNumber ? `${parentNumber}.${numbered}` : String(numbered);
+      if (isAutoPageTitle(chapter.title)) {
+        chapter.title = `Sayfa ${chapter.number}`;
+      }
     }
     renumberSiblingGroup(book, chapter.id, chapter.number);
   });
+}
+
+function isAutoPageTitle(title: string): boolean {
+  const trimmed = title.trim();
+  if (!trimmed.startsWith("Sayfa ")) return false;
+  const rest = trimmed.slice("Sayfa ".length);
+  return rest.length > 0 && /^[\d.]+$/.test(rest);
+}
+
+function setChapterNumber(id: string, number: string): Chapter[] {
+  const book = current();
+  const chapter = requireChapter(id);
+  if (isFrontMatterTitle(chapter.title)) {
+    throw new Error("Kapak / önsöz / giriş / içindekiler numaralanmaz.");
+  }
+  const trimmed = number.trim();
+  if (!trimmed) throw new Error("Sayfa numarası boş olamaz.");
+  const last = trimmed.split(".").pop() ?? "";
+  const target = Number.parseInt(last, 10);
+  if (!Number.isFinite(target) || target < 1) {
+    throw new Error("Geçerli bir sayfa numarası yazın (ör. 2 veya 4.1).");
+  }
+  const siblings = book.chapters
+    .filter((item) => item.parentId === chapter.parentId)
+    .sort((a, b) => a.order - b.order);
+  const front = siblings.filter((item) => isFrontMatterTitle(item.title)).map((item) => item.id);
+  const numbered = siblings
+    .filter((item) => !isFrontMatterTitle(item.title) && item.id !== id)
+    .map((item) => item.id);
+  const insertAt = Math.min(Math.max(target - 1, 0), numbered.length);
+  numbered.splice(insertAt, 0, id);
+  const orderedIds = [...front, ...numbered];
+  const ts = now();
+  orderedIds.forEach((siblingId, index) => {
+    const item = requireChapter(siblingId);
+    item.order = index;
+    item.updatedAt = ts;
+  });
+  renumberBookChapters(book);
+  if (chapter.parentId) refreshChapterToc(book, chapter.parentId);
+  else refreshBookToc(book);
+  persist();
+  return [...book.chapters].sort(compareChapters);
 }
 
 function compareChapters(a: Chapter, b: Chapter): number {
@@ -1254,20 +1314,27 @@ function writeToc(book: StoredBook, tocId: string, parentId: string | null) {
       ts,
     ),
   );
-  const listItems = items.map((chapter) => ({
-    type: "listItem",
-    content: [
-      {
-        type: "paragraph",
-        content: [
-          {
-            type: "text",
-            text: chapter.number ? `${chapter.number} ${chapter.title}` : chapter.title,
-          },
-        ],
-      },
-    ],
-  }));
+  const start = book.book.pageNumberStart ?? 1;
+  const listItems = items.map((chapter, index) => {
+    const label = chapter.number ? `${chapter.number} ${chapter.title}` : chapter.title;
+    const page = start + index;
+    return {
+      type: "listItem",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: label,
+              marks: [{ type: "link", attrs: { href: `#chapter-${chapter.id}`, target: null } }],
+            },
+            { type: "text", text: `\t${page}` },
+          ],
+        },
+      ],
+    };
+  });
   book.blocks.push(
     block(
       tocId,
@@ -1307,6 +1374,14 @@ function emptyShell(projectId: string, bookId: string, title: string, path: stri
     pageNumberAlign: "center",
     pageNumberStart: 1,
     lineHeight: 1.15,
+    pageSizePreset: "classic",
+    pageWidthMm: (760 * 25.4) / 96,
+    pageHeightMm: (920 * 25.4) / 96,
+    marginTopMm: (56 * 25.4) / 96,
+    marginRightMm: (64 * 25.4) / 96,
+    marginBottomMm: (96 * 25.4) / 96,
+    marginLeftMm: (64 * 25.4) / 96,
+    bookExtrasJson: "{}",
     createdAt: ts,
     updatedAt: ts,
   };

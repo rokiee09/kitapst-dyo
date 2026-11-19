@@ -37,8 +37,29 @@ pub struct Book {
     pub page_number_start: i64,
     #[serde(default = "default_line_height")]
     pub line_height: f64,
+    #[serde(default = "default_page_size_preset")]
+    pub page_size_preset: String,
+    #[serde(default = "default_page_width_mm")]
+    pub page_width_mm: f64,
+    #[serde(default = "default_page_height_mm")]
+    pub page_height_mm: f64,
+    #[serde(default = "default_margin_top_mm")]
+    pub margin_top_mm: f64,
+    #[serde(default = "default_margin_right_mm")]
+    pub margin_right_mm: f64,
+    #[serde(default = "default_margin_bottom_mm")]
+    pub margin_bottom_mm: f64,
+    #[serde(default = "default_margin_left_mm")]
+    pub margin_left_mm: f64,
+    /// Stiller, kapak teması, bleed, ön madde kilidi.
+    #[serde(default = "default_book_extras")]
+    pub book_extras_json: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn default_book_extras() -> String {
+    "{}".to_string()
 }
 
 fn default_page_color() -> String {
@@ -63,6 +84,34 @@ fn default_line_height() -> f64 {
 
 fn default_font_family() -> String {
     "Segoe UI".to_string()
+}
+
+fn default_page_size_preset() -> String {
+    "classic".to_string()
+}
+
+fn default_page_width_mm() -> f64 {
+    760.0 * 25.4 / 96.0
+}
+
+fn default_page_height_mm() -> f64 {
+    920.0 * 25.4 / 96.0
+}
+
+fn default_margin_top_mm() -> f64 {
+    56.0 * 25.4 / 96.0
+}
+
+fn default_margin_right_mm() -> f64 {
+    64.0 * 25.4 / 96.0
+}
+
+fn default_margin_bottom_mm() -> f64 {
+    96.0 * 25.4 / 96.0
+}
+
+fn default_margin_left_mm() -> f64 {
+    64.0 * 25.4 / 96.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +223,14 @@ pub struct UpdateBookPayload {
     pub page_number_align: Option<String>,
     pub page_number_start: Option<i64>,
     pub line_height: Option<f64>,
+    pub page_size_preset: Option<String>,
+    pub page_width_mm: Option<f64>,
+    pub page_height_mm: Option<f64>,
+    pub margin_top_mm: Option<f64>,
+    pub margin_right_mm: Option<f64>,
+    pub margin_bottom_mm: Option<f64>,
+    pub margin_left_mm: Option<f64>,
+    pub book_extras_json: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

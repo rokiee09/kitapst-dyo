@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { History } from "lucide-react";
 import { tr } from "@/i18n/tr";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { chapterService } from "@/services";
 import { useEditorStore } from "@/stores/editorStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 
-export function VersionMenu() {
+export function VersionMenu({ trigger }: { trigger?: ReactNode }) {
   const versions = useWorkspaceStore((state) => state.versions);
   const createVersion = useWorkspaceStore((state) => state.createVersion);
   const restoreVersion = useWorkspaceStore((state) => state.restoreVersion);
@@ -27,10 +27,12 @@ export function VersionMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="secondary" size="sm">
-          <History size={14} />
-          {tr.versions.title}
-        </Button>
+        {trigger ?? (
+          <Button variant="secondary" size="sm">
+            <History size={14} />
+            {tr.versions.title}
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel>{tr.versions.title}</DropdownMenuLabel>
@@ -82,9 +84,6 @@ export function VersionMenu() {
           >
             {tr.versions.create}
           </Button>
-          <p className="text-[11px] leading-4 text-[#8aa0bd]">
-            İlk sürüm oluşturma kitabın o andaki tam kopyasını saklar. Listeden tıklayarak geri yükleyebilirsiniz.
-          </p>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

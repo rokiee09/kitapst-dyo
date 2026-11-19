@@ -141,18 +141,37 @@ fn write_toc_list(
         })
         .collect();
 
+    let page_start = database::get_book(conn)
+        .map(|book| book.page_number_start.max(1))
+        .unwrap_or(1);
     let list_items: Vec<_> = items
         .iter()
-        .map(|chapter| {
+        .enumerate()
+        .map(|(index, chapter)| {
             let label = match &chapter.number {
                 Some(number) if !number.is_empty() => format!("{number} {}", chapter.title),
                 _ => chapter.title.clone(),
             };
+            let page_no = page_start + index as i64;
+            let href = format!("#chapter-{}", chapter.id);
             json!({
                 "type": "listItem",
+                "attrs": { "chapterId": chapter.id },
                 "content": [{
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": label }]
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": label,
+                            "marks": [{ "type": "link", "attrs": { "href": href, "target": null } }]
+                        },
+                        { "type": "text", "text": "  " },
+                        {
+                            "type": "text",
+                            "text": page_no.to_string(),
+                            "marks": [{ "type": "link", "attrs": { "href": href, "target": null } }]
+                        }
+                    ]
                 }]
             })
         })

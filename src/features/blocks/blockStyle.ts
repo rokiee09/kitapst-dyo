@@ -102,16 +102,21 @@ export function canFloat(type: BlockType): boolean {
 }
 
 export function isFree(style: BlockStyle | undefined): boolean {
-  return style?.placement === "free";
+  const placement = style?.placement;
+  return placement === "free" || placement === "freeFront" || placement === "freeBehind";
+}
+
+export function isWrap(style: BlockStyle | undefined): boolean {
+  return style?.placement === "wrapLeft" || style?.placement === "wrapRight";
 }
 
 export function defaultFreeStyle(type: BlockType, index: number): BlockStyle {
   if (type === "qr") {
-    return { placement: "free", x: 82, y: 4, width: 14 };
+    return { placement: "freeFront", x: 82, y: 4, width: 14 };
   }
   const media = type === "image" || type === "video";
   return {
-    placement: "free",
+    placement: "freeFront",
     x: media ? 58 : 6,
     y: Math.min(78, 8 + (index % 7) * 10),
     width: media ? 36 : 88,
@@ -179,7 +184,19 @@ export function blockBoxStyle(style: BlockStyle, free: boolean, type?: BlockType
     css.left = `${style.x ?? 6}%`;
     css.top = `${style.y ?? 8}%`;
     css.width = `${style.width ?? 88}%`;
-    css.zIndex = 4;
+    css.zIndex = style.placement === "freeBehind" ? 1 : 4;
+  } else if (style.placement === "wrapLeft") {
+    css.float = "left";
+    css.clear = "left";
+    css.width = "46%";
+    css.maxWidth = "46%";
+    css.margin = "0 16px 12px 0";
+  } else if (style.placement === "wrapRight") {
+    css.float = "right";
+    css.clear = "right";
+    css.width = "46%";
+    css.maxWidth = "46%";
+    css.margin = "0 0 12px 16px";
   }
   return css;
 }

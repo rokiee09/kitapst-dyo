@@ -7,6 +7,7 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TextAlign from "@tiptap/extension-text-align";
 import { TextStyleKit } from "@tiptap/extension-text-style";
+import { useSlashCommands } from "@/features/editor/SlashCommandMenu";
 import { useEditorStore } from "@/stores/editorStore";
 
 interface RichTextEditorProps {
@@ -42,7 +43,9 @@ export function RichTextEditor({
         autolink: true,
         HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" },
       }),
-      Placeholder.configure({ placeholder }),
+      Placeholder.configure({
+        placeholder: editable ? `${placeholder}  (/ ile blok ekle)` : placeholder,
+      }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       TextStyleKit,
     ],
@@ -65,6 +68,8 @@ export function RichTextEditor({
     },
   });
 
+  const slashMenu = useSlashCommands(editable ? editor : null, blockId);
+
   useEffect(() => {
     return () => {
       if (useEditorStore.getState().activeEditor === editor) {
@@ -79,7 +84,12 @@ export function RichTextEditor({
     editor.chain().focus().scrollIntoView().run();
   }, [editor, blockId, locateQuery]);
 
-  return <EditorContent editor={editor} />;
+  return (
+    <>
+      <EditorContent editor={editor} />
+      {slashMenu}
+    </>
+  );
 }
 
 function selectExcerpt(editor: Editor, query: string) {

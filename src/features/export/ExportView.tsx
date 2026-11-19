@@ -6,6 +6,12 @@ import { folderService } from "@/services";
 const FORMATS = [
   { id: "epub", title: tr.export.epub, enabled: true, note: "Gerçek EPUB 3 dosyası üretir." },
   { id: "pdf", title: tr.export.pdf, enabled: true, note: "Uygulamadaki sayfa boyutu ve sayısı ile PDF üretir. QR kodlar da basılır." },
+  {
+    id: "printPdf",
+    title: "Baskı PDF’i",
+    enabled: true,
+    note: "Taşma payı (bleed) ve kesim işaretleriyle tek tıkta baskıya hazır PDF.",
+  },
   { id: "html", title: tr.export.html, enabled: true, note: "Tek sayfalık HTML kitap üretir." },
   { id: "zip", title: tr.export.zip, enabled: true, note: "Proje yedeğini ZIP olarak oluşturur." },
   { id: "mobile", title: tr.export.mobile, enabled: true, note: tr.export.mobileHint },

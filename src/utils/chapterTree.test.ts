@@ -44,6 +44,10 @@ describe("displayChapterLabel", () => {
       }),
     ).toBe("4.2.6  Doğru Bir Teknikle Nefes Alıp Verin");
   });
+
+  it("otomatik Sayfa başlığını güncel numarayla gösterir", () => {
+    expect(displayChapterLabel({ number: "4.2", title: "Sayfa 4.1" })).toBe("Sayfa 4.2");
+  });
 });
 
 describe("pageSheetFamily", () => {
